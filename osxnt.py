@@ -183,7 +183,7 @@ def create_parser():
     parser.add_argument('-ngl-spam', metavar='USERNAME', help='NGL Spammer - Kirim spam ke ngl.link')
     parser.add_argument('-m', '--message', help='Pesan untuk spam')
     parser.add_argument('-f', '--file', help='File berisi pesan (satu per baris)')
-    parser.add_argument('-c', '--count', type=int, default=10, help='Jumlah spam (default: 10)')
+    parser.add_argument('-cn', '--countt', type=int, default=10, help='Jumlah spam (default: 10)')
     parser.add_argument('-theme', choices=['love', 'hate', 'random', 'scary'], help='Tema pesan random')
     parser.add_argument('-delay', type=float, default=1, help='Delay antar pesan (detik)')
     
