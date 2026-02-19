@@ -1,0 +1,6 @@
+{
+    "threads": 20,
+    "timeout": 3,
+    "output_dir": "output",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+}
