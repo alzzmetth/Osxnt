@@ -1,100 +1,143 @@
 #!/usr/bin/env python3
 # OSXNT - OSINT Toolkit by alzzdevmaret
-# Version: 2.0.0
+# Version: 2.1.0 (with Spam Modules)
 
 import argparse
 import sys
 import os
+import random
 from core.banner import show_banner
 from core.about import about
 from config.config import config
 from lib.multi_target import read_targets_from_file
 from modules import iptrack, dns, scanport, subdomain
 from modules.webtrack import track_web, process_single_target, process_multi_targets
+from modules.spam import NGLSpammer, GmailSpammer
 
 # Versi tools
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 AUTHOR = "alzzdevmaret"
 GITHUB = "https://github.com/alzzdevmaret/osxnt"
 
 def show_version():
     """Tampilkan informasi versi"""
     print(f"""
-OSXNT Version: {VERSION}
-Author: {AUTHOR}
-Repository: {GITHUB}
-License: MIT
-Python: {sys.version.split()[0]}
-Platform: {sys.platform}
+ OSXNT Version: {VERSION:<14}        
+ Author: {AUTHOR:<20}       
+ Repository: {GITHUB:<25} 
+ Python: {sys.version.split()[0]:<19}        
+ Platform: {sys.platform:<17}        
+ Spam Modules: ACTIVE                  
+
     """.strip())
 
 def show_full_help():
     """Tampilkan help lengkap dengan format profesional"""
     help_text = f"""
 {'='*60}
-{'OSXNT - OSINT Toolkit':^60}
+{'OSXNT - OSINT TOOLKIT v' + VERSION:^60}
 {'='*60}
 
 USAGE:
-    osxnt.py [-h] [-v] [-s file.json] [-trackip IP] [-webtrack {{ip,dns}}]
-             [-ip TARGET] [-dns TARGET] [-scan] [-p PORTS] [-sbdomain]
-             [-use THREADS] [-about] [target]
+    osxnt.py [-h] [-v] [-s file.json] [OPTIONS] [target]
 
-GLOBAL OPTIONS:
+{'='*60}
+🌐 GLOBAL OPTIONS:
+{'='*60}
     -h, --help              Tampilkan menu bantuan ini
     --version, -vr          Tampilkan informasi versi tools
     -v, --verbose           Mode verbose (tampilkan proses detail)
     -s file.json            Simpan hasil ke file JSON
     -about                  Tampilkan informasi tentang tools
 
-IP TRACKING:
+{'='*60}
+📍 IP TRACKING:
+{'='*60}
     -trackip IP             Lacak informasi geolokasi IP
                             (gunakan 'myip' untuk IP sendiri)
+    
     Contoh:
         osxnt.py -trackip 8.8.8.8
         osxnt.py -trackip myip -v -s hasil.json
 
-WEB TRACKING:
+{'='*60}
+🌍 WEB TRACKING:
+{'='*60}
     -webtrack {{ip,dns}}     Mode web tracking:
         ip   - Dapatkan IP address dan hostname
         dns  - Dapatkan semua DNS records (A, MX, NS, TXT, dll)
     -ip TARGET              Target untuk mode ip
     -dns TARGET             Target untuk mode dns
+    
     Contoh:
         osxnt.py -webtrack ip -ip google.com
         osxnt.py -webtrack dns -dns facebook.com -s dns.json
 
-PORT SCANNER:
+{'='*60}
+🔌 PORT SCANNER:
+{'='*60}
     -scan                    Aktifkan port scanner
     -p PORTS                 Port yang di-scan (format: 80,443 atau 1-1000)
+    
     Contoh:
         osxnt.py -scan -p 80,443,22 192.168.1.1
         osxnt.py -scan -p 1-1000 scanme.nmap.org -v -s scan.json
 
-SUBDOMAIN ENUMERATION:
+{'='*60}
+🔍 SUBDOMAIN ENUMERATION:
+{'='*60}
     -sbdomain                Cari subdomain dari domain target
-    -use THREADS              Jumlah thread (default: 20)
+    -use THREADS             Jumlah thread (default: 20)
     -w WORDLIST              File wordlist kustom (default: requiments/subdomain.txt)
+    
     Contoh:
         osxnt.py -sbdomain google.com -use 50
         osxnt.py -sbdomain target.com -w mylist.txt -v -s subs.json
 
-WEB SOURCE DOWNLOAD:
+{'='*60}
+📥 WEB SOURCE DOWNLOAD:
+{'='*60}
     -trackweb                Download kode sumber website (HTML, CSS, JS)
     -c CODE                   Tipe kode (html,css,js - pisah koma)
     -o OUTPUT_DIR             Direktori output (gunakan $result$ untuk nama domain)
+    
     Contoh:
         osxnt.py -trackweb example.com -c html,css -o package/$result$ -v
         osxnt.py -trackweb @list.txt -c js -o hasil/$result$
 
-MULTI-TARGET:
+{'='*60}
+📱 SPAM MODULES:
+{'='*60}
+    -ngl-spam USERNAME       NGL Spammer - Kirim spam ke ngl.link
+    -m, --message TEXT       Pesan untuk spam
+    -f, --file FILE          File berisi pesan (satu per baris)
+    -c, --count NUMBER       Jumlah spam (default: 10)
+    -theme {{love,hate,random,scary}}  Tema pesan random
+    -delay SECONDS           Delay antar pesan (default: 1)
+    
+    Contoh NGL Spam:
+        osxnt.py -ngl-spam username123 -m "Hello" -c 50
+        osxnt.py -ngl-spam target -f messages.txt -c 5
+        osxnt.py -ngl-spam user -theme love -c 100 -delay 2
+
+    -gmail-spam EMAIL        Gmail Spammer - SIMULASI kirim email
+    -subj, --subject TEXT    Subject email
+    -body TEXT               Body email
+    
+    Contoh Gmail Spam (Simulasi):
+        osxnt.py -gmail-spam target@gmail.com -subj "Hello" -body "Test" -c 10
+
+{'='*60}
+📌 MULTI-TARGET:
+{'='*60}
     Gunakan @file.txt pada parameter target untuk memproses banyak target dari file
+    
     Contoh:
         osxnt.py -trackip -ft list_ip.txt
         osxnt.py -trackweb @domains.txt -c html -o output/$result$
 
 {'='*60}
-Contoh lengkap: osxnt.py -webtrack ip -ip google.com -v -s hasil.json
+🎯 Contoh Lengkap: osxnt.py -webtrack ip -ip google.com -v -s hasil.json
 {'='*60}
 """
     print(help_text)
@@ -103,8 +146,8 @@ def create_parser():
     """Buat parser dengan format lama (tanpa subparser)"""
     parser = argparse.ArgumentParser(
         description="OSXNT - OSINT Toolkit",
-        usage="osxnt.py [-h] [-v] [-s file.json] [-trackip IP] [-webtrack {ip,dns}] [-ip TARGET] [-dns TARGET] [-scan] [-p PORTS] [-sbdomain] [-use THREADS] [-about] [target]",
-        add_help=False  # Kita handle help manual
+        usage="osxnt.py [-h] [-v] [-s file.json] [OPTIONS] [target]",
+        add_help=False
     )
     
     # Global options
@@ -135,6 +178,19 @@ def create_parser():
     parser.add_argument('-trackweb', action='store_true', help='Download kode sumber website')
     parser.add_argument('-c', metavar='CODE', help='Tipe kode (html,css,js - pisah koma)')
     parser.add_argument('-o', metavar='OUTPUT_DIR', default='package/$result$', help='Direktori output')
+    
+    # NGL Spam
+    parser.add_argument('-ngl-spam', metavar='USERNAME', help='NGL Spammer - Kirim spam ke ngl.link')
+    parser.add_argument('-m', '--message', help='Pesan untuk spam')
+    parser.add_argument('-f', '--file', help='File berisi pesan (satu per baris)')
+    parser.add_argument('-c', '--count', type=int, default=10, help='Jumlah spam (default: 10)')
+    parser.add_argument('-theme', choices=['love', 'hate', 'random', 'scary'], help='Tema pesan random')
+    parser.add_argument('-delay', type=float, default=1, help='Delay antar pesan (detik)')
+    
+    # Gmail Spam (Simulasi)
+    parser.add_argument('-gmail-spam', metavar='EMAIL', help='Gmail Spammer - SIMULASI kirim email')
+    parser.add_argument('-subj', '--subject', help='Subject email')
+    parser.add_argument('-body', help='Body email')
     
     # Positional target (untuk scan dan subdomain)
     parser.add_argument('target', nargs='?', help='Target host/IP/domain')
@@ -232,6 +288,55 @@ def main():
             process_multi_targets(targets, code_types, args.o, verbose)
         else:
             process_single_target(args.target, code_types, args.o, verbose)
+        return
+    
+    # ========== NGL SPAM ==========
+    if args.ngl_spam:
+        username = args.ngl_spam
+        spammer = NGLSpammer(username, verbose)
+        
+        # Header
+        print("\n" + "="*50)
+        print(f"📱 NGL SPAMMER - Target: @{username}")
+        print("="*50)
+        
+        # File mode
+        if args.file:
+            repeat = args.count if args.count else 1
+            spammer.spam_from_file(args.file, repeat, args.delay)
+        
+        # Random theme mode
+        elif args.theme:
+            spammer.random_spam(args.theme, args.count, args.delay)
+        
+        # Single message mode
+        elif args.message:
+            spammer.spam(args.message, args.count, args.delay)
+        
+        else:
+            print("[!] Tentukan pesan dengan -m (single), -f (file), atau -theme (random)")
+            print("    Contoh: osxnt.py -ngl-spam user -m 'Hello' -c 50")
+            print("            osxnt.py -ngl-spam user -f messages.txt -c 5")
+            print("            osxnt.py -ngl-spam user -theme love -c 100")
+        
+        return
+    
+    # ========== GMAIL SPAM (SIMULASI) ==========
+    if args.gmail_spam:
+        email = args.gmail_spam
+        spammer = GmailSpammer(verbose)
+        
+        print("\n" + "="*50)
+        print(f"📧 GMAIL SPAMMER (SIMULASI) - Target: {email}")
+        print("="*50)
+        
+        if not args.subject or not args.body:
+            print("[!] Gunakan -subj untuk subject dan -body untuk isi email")
+            print("    Contoh: osxnt.py -gmail-spam target@gmail.com -subj 'Hello' -body 'Test' -c 10")
+            sys.exit(1)
+        
+        count = args.count if args.count else 10
+        spammer.spam(email, args.subject, args.body, count, args.delay)
         return
     
     # Jika tidak ada perintah yang dikenali
