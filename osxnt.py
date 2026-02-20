@@ -13,8 +13,6 @@ from lib.multi_target import read_targets_from_file
 from modules import iptrack, dns, scanport, subdomain
 from modules.webtrack import track_web, process_single_target, process_multi_targets
 from modules.spam import NGLSpammer, GmailSpammer
-from modules.http_analyzer import HTTPAnalyzer
-from modules.ssl_analyzer import SSLAnalyzer
 
 # Versi tools
 VERSION = "2.2.0"
