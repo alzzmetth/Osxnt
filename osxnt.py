@@ -251,6 +251,18 @@ def create_parser():
     parser.add_argument('-resource', metavar='TARGET', help='Target untuk URL checker')
     parser.add_argument('-type', choices=['all', 'images', 'scripts', 'styles', 'links'], 
                    default='all', help='Tipe resource untuk dicek')
+    # Di bagian create_parser(), tambahkan:
+
+# Dark Web Deployer
+    parser.add_argument('-config', help='Configure dark web settings (format: key=value)')
+    parser.add_argument('-setup', action='store_true', help='Setup dark web environment')
+    parser.add_argument('--auto', action='store_true', help='Auto setup with defaults')
+    parser.add_argument('--name', help='Site name for dark web')
+    parser.add_argument('-darkweb', action='store_true', help='Dark web control')
+    parser.add_argument('-start', action='store_true', help='Start dark web server')
+    parser.add_argument('-stop', action='store_true', help='Stop dark web server')
+    parser.add_argument('-status', action='store_true', help='Show dark web status')
+    parser.add_argument('-deploy', metavar='DIR', help='Deploy files from directory')
     return parser
 
 def main():
@@ -457,6 +469,51 @@ def main():
         checker = URLChecker(verbose=verbose)
         checker.check(args.resource, resource_type=args.type if hasattr(args, 'type') else 'all', save=save_file)
         return
+     # Di bagian handler, tambahkan:
+
+# ========== DARK WEB DEPLOYER ==========
+if hasattr(args, 'config') and args.config:
+    from modules.darkweb import DarkWebDeployer
+    deployer = DarkWebDeployer()
+    
+    if '=' in args.config:
+        key, value = args.config.split('=', 1)
+        if value.isdigit():
+            value = int(value)
+        deployer.update_config(key, value)
+    else:
+        print("[!] Format: -config key=value (e.g., -config port=9090)")
+    return
+
+if hasattr(args, 'setup') and args.setup:
+    from modules.darkweb import DarkWebDeployer
+    deployer = DarkWebDeployer()
+    deployer.setup(auto=args.auto if hasattr(args, 'auto') else False, 
+                   name=args.name if hasattr(args, 'name') else None)
+    return
+
+if hasattr(args, 'darkweb') and args.darkweb:
+    from modules.darkweb import DarkWebDeployer
+    deployer = DarkWebDeployer()
+    
+    if args.start:
+        deployer.start()
+    elif args.stop:
+        deployer.stop()
+    elif args.status:
+        status = deployer.status_info()
+        print("\n" + "="*50)
+        print("📊 DARK WEB STATUS")
+        print("="*50)
+        for key, value in status.items():
+            print(f"  {key}: {value}")
+        print("="*50)
+    elif args.deploy:
+        deployer.deploy_files(args.deploy)
+    else:
+        print("[!] Use: -start, -stop, -status, or -deploy DIR")
+    return 
+
     
     # Jika tidak ada perintah yang dikenali
     print(''' USAGE:
