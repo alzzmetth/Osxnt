@@ -239,7 +239,20 @@ def create_parser():
     parser.add_argument('ip', nargs='?', help='IP address untuk C2 server')
     parser.add_argument('port', nargs='?', help='Port untuk C2 server')
     parser.add_argument('password', nargs='?', help='Password untuk C2 server')
-    
+
+    # Email Harvester
+    parser.add_argument('-email', action='store_true', help='Email Harvester - Kumpulkan email dari website')
+    parser.add_argument('-scrap', metavar='TARGET', help='Target untuk email harvester')
+
+# URL Extractor
+    parser.add_argument('-urlextract', metavar='TARGET', help='URL Extractor - Extract semua URL dari website')
+    parser.add_argument('-depth', type=int, default=2, help='Kedalaman crawling (default: 2)')
+
+ # URL Checker
+    parser.add_argument('-urlcheck', action='store_true', help='URL Checker - Check resources website')
+    parser.add_argument('-resource', metavar='TARGET', help='Target untuk URL checker')
+    parser.add_argument('-type', choices=['all', 'images', 'scripts', 'styles', 'links'], 
+                   default='all', help='Tipe resource untuk dicek')
     return parser
 
 def main():
@@ -376,17 +389,6 @@ def main():
             process_single_target(args.target, code_types, args.o, verbose)
         return
     
-    # ========== HTTP HEADER ANALYZER ==========
-    if args.header:
-        analyzer = HTTPAnalyzer(verbose=verbose)
-        analyzer.analyze(args.header, save=save_file)
-        return
-    
-    # ========== SSL/TLS ANALYZER ==========
-    if args.ssl:
-        analyzer = SSLAnalyzer(verbose=verbose)
-        analyzer.analyze(args.ssl, args.port, save=save_file)
-        return
     
     # ========== NGL SPAM ==========
     if args.ngl_spam:
@@ -437,9 +439,31 @@ def main():
         jumlah = args.jumlah if args.jumlah else 10
         spammer.spam(email, args.subject, args.body, jumlah, args.delay)
         return
+      # ========== EMAIL HARVESTER ==========
+    if args.email and args.scrap:
+        from modules.email_harvester import EmailHarvester
+        harvester = EmailHarvester(verbose=verbose) 
+        harvester.harvest(args.scrap, depth=args.depth if hasattr(args, 'depth') else 2, save=save_file)
+        return
+
+# ========== URL EXTRACTOR ==========
+    if args.urlextract:
+        from modules.url_extractor import URLExtractor
+        extractor = URLExtractor(verbose=verbose)
+        extractor.extract(args.urlextract, depth=args.depth if hasattr(args, 'depth') else 2, save=save_file)
+        return
+
+# ========== URL CHECKER ==========
+    if args.urlcheck and args.resource:
+        from modules.url_extractor import URLChecker
+        checker = URLChecker(verbose=verbose)
+        checker.check(args.resource, resource_type=args.type if hasattr(args, 'type') else 'all', save=save_file)
+        return
     
     # Jika tidak ada perintah yang dikenali
-    print("[!] Perintah tidak dikenal. Gunakan -h untuk melihat bantuan.")
+    print(''' USAGE:
+    osxnt.py [-h] [-v] [-s file.json] [OPTIONS] [target]
+''')
     sys.exit(1)
 
 if __name__ == "__main__":
