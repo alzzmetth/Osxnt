@@ -1,0 +1,9 @@
+{
+    "port": 8080,
+    "tor_port": 9050,
+    "control_port": 9051,
+    "site_name": "default",
+    "site_dir": "darkweb_data/sites/default",
+    "tor_dir": "darkweb_data/tor",
+    "auto_start": true
+}
