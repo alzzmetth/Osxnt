@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # OSXNT - OSINT Toolkit by alzzdevmaret
-# Version: 2.1.0 (with Spam Modules)
+# Version: 2.2.0 (with C2 Botnet Framework)
 
 import argparse
 import sys
@@ -13,46 +13,51 @@ from lib.multi_target import read_targets_from_file
 from modules import iptrack, dns, scanport, subdomain
 from modules.webtrack import track_web, process_single_target, process_multi_targets
 from modules.spam import NGLSpammer, GmailSpammer
+from modules.http_analyzer import HTTPAnalyzer
+from modules.ssl_analyzer import SSLAnalyzer
 
 # Versi tools
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 AUTHOR = "alzzdevmaret"
 GITHUB = "https://github.com/alzzdevmaret/osxnt"
 
 def show_version():
     """Tampilkan informasi versi"""
     print(f"""
- OSXNT Version: {VERSION:<14}        
- Author: {AUTHOR:<20}       
- Repository: {GITHUB:<25} 
- Python: {sys.version.split()[0]:<19}        
- Platform: {sys.platform:<17}        
- Spam Modules: ACTIVE                  
-
+╔══════════════════════════════════════════════════════════════╗
+║  OSXNT Version     : {VERSION:<35} ║
+║  Author            : {AUTHOR:<35} ║
+║  Repository        : {GITHUB:<35} ║
+║  Python            : {sys.version.split()[0]:<35} ║
+║  Platform          : {sys.platform:<35} ║
+║  Features          : IP Track, Web Track, Port Scan,        ║
+║                      Subdomain, HTTP/SSL Analyzer,          ║
+║                      Spam Modules, C2 Botnet Framework      ║
+╚══════════════════════════════════════════════════════════════╝
     """.strip())
 
 def show_full_help():
     """Tampilkan help lengkap dengan format profesional"""
     help_text = f"""
-{'='*60}
-{'OSXNT - OSINT TOOLKIT v' + VERSION:^60}
-{'='*60}
+{'='*70}
+{'OSXNT - OSINT TOOLKIT v' + VERSION:^70}
+{'='*70}
 
 USAGE:
     osxnt.py [-h] [-v] [-s file.json] [OPTIONS] [target]
 
-{'='*60}
+{'='*70}
 🌐 GLOBAL OPTIONS:
-{'='*60}
+{'='*70}
     -h, --help              Tampilkan menu bantuan ini
     --version, -vr          Tampilkan informasi versi tools
     -v, --verbose           Mode verbose (tampilkan proses detail)
     -s file.json            Simpan hasil ke file JSON
     -about                  Tampilkan informasi tentang tools
 
-{'='*60}
+{'='*70}
 📍 IP TRACKING:
-{'='*60}
+{'='*70}
     -trackip IP             Lacak informasi geolokasi IP
                             (gunakan 'myip' untuk IP sendiri)
     
@@ -60,9 +65,9 @@ USAGE:
         osxnt.py -trackip 8.8.8.8
         osxnt.py -trackip myip -v -s hasil.json
 
-{'='*60}
+{'='*70}
 🌍 WEB TRACKING:
-{'='*60}
+{'='*70}
     -webtrack {{ip,dns}}     Mode web tracking:
         ip   - Dapatkan IP address dan hostname
         dns  - Dapatkan semua DNS records (A, MX, NS, TXT, dll)
@@ -73,9 +78,9 @@ USAGE:
         osxnt.py -webtrack ip -ip google.com
         osxnt.py -webtrack dns -dns facebook.com -s dns.json
 
-{'='*60}
+{'='*70}
 🔌 PORT SCANNER:
-{'='*60}
+{'='*70}
     -scan                    Aktifkan port scanner
     -p PORTS                 Port yang di-scan (format: 80,443 atau 1-1000)
     
@@ -83,9 +88,9 @@ USAGE:
         osxnt.py -scan -p 80,443,22 192.168.1.1
         osxnt.py -scan -p 1-1000 scanme.nmap.org -v -s scan.json
 
-{'='*60}
+{'='*70}
 🔍 SUBDOMAIN ENUMERATION:
-{'='*60}
+{'='*70}
     -sbdomain                Cari subdomain dari domain target
     -use THREADS             Jumlah thread (default: 20)
     -w WORDLIST              File wordlist kustom (default: requiments/subdomain.txt)
@@ -94,9 +99,9 @@ USAGE:
         osxnt.py -sbdomain google.com -use 50
         osxnt.py -sbdomain target.com -w mylist.txt -v -s subs.json
 
-{'='*60}
+{'='*70}
 📥 WEB SOURCE DOWNLOAD:
-{'='*60}
+{'='*70}
     -trackweb                Download kode sumber website (HTML, CSS, JS)
     -c CODE                   Tipe kode (html,css,js - pisah koma)
     -o OUTPUT_DIR             Direktori output (gunakan $result$ untuk nama domain)
@@ -105,40 +110,66 @@ USAGE:
         osxnt.py -trackweb example.com -c html,css -o package/$result$ -v
         osxnt.py -trackweb @list.txt -c js -o hasil/$result$
 
-{'='*60}
+{'='*70}
+🔬 HTTP & SSL ANALYZER:
+{'='*70}
+    -header URL              HTTP Header Analyzer - Analisis response headers
+    
+    -ssl HOST                SSL/TLS Analyzer - Analisis sertifikat SSL
+    -port PORT               Port untuk SSL analyzer (default: 443)
+    
+    Contoh:
+        osxnt.py -header https://google.com
+        osxnt.py -ssl google.com -v
+        osxnt.py -ssl facebook.com -port 8443 -s ssl.json
+
+{'='*70}
 📱 SPAM MODULES:
-{'='*60}
+{'='*70}
     -ngl-spam USERNAME       NGL Spammer - Kirim spam ke ngl.link
     -m, --message TEXT       Pesan untuk spam
     -f, --file FILE          File berisi pesan (satu per baris)
-    -c, --count NUMBER       Jumlah spam (default: 10)
+    -n, --jumlah NUMBER      Jumlah spam (default: 10)
     -theme {{love,hate,random,scary}}  Tema pesan random
     -delay SECONDS           Delay antar pesan (default: 1)
     
     Contoh NGL Spam:
-        osxnt.py -ngl-spam username123 -m "Hello" -c 50
-        osxnt.py -ngl-spam target -f messages.txt -c 5
-        osxnt.py -ngl-spam user -theme love -c 100 -delay 2
+        osxnt.py -ngl-spam username123 -m "Hello" -n 50
+        osxnt.py -ngl-spam target -f messages.txt -n 5
 
     -gmail-spam EMAIL        Gmail Spammer - SIMULASI kirim email
     -subj, --subject TEXT    Subject email
     -body TEXT               Body email
     
     Contoh Gmail Spam (Simulasi):
-        osxnt.py -gmail-spam target@gmail.com -subj "Hello" -body "Test" -c 10
+        osxnt.py -gmail-spam target@gmail.com -subj "Hello" -body "Test" -n 10
 
-{'='*60}
+{'='*70}
+🤖 C2 BOTNET FRAMEWORK:
+{'='*70}
+    -c2                      Aktifkan C2 Botnet Framework
+    -startserver             Start C2 server
+    
+    Format:
+        osxnt.py -c2 -startserver [ip] [port] [password]
+        
+    Contoh:
+        osxnt.py -c2 -startserver                     # Interactive mode
+        osxnt.py -c2 -startserver 0.0.0.0 8080 admin  # Direct mode
+        osxnt.py -c2 -startserver -v                   # With verbose
+
+{'='*70}
 📌 MULTI-TARGET:
-{'='*60}
+{'='*70}
     Gunakan @file.txt pada parameter target untuk memproses banyak target dari file
     
     Contoh:
         osxnt.py -trackip -ft list_ip.txt
         osxnt.py -trackweb @domains.txt -c html -o output/$result$
 
-{'='*60}
+{'='*70}
 🎯 Contoh Lengkap: osxnt.py -webtrack ip -ip google.com -v -s hasil.json
-{'='*60}
+{'='*70}
 """
     print(help_text)
 
@@ -179,11 +210,16 @@ def create_parser():
     parser.add_argument('-c', metavar='CODE', help='Tipe kode (html,css,js - pisah koma)')
     parser.add_argument('-o', metavar='OUTPUT_DIR', default='package/$result$', help='Direktori output')
     
+    # HTTP & SSL Analyzer
+    parser.add_argument('-header', metavar='URL', help='HTTP Header Analyzer - Analisis HTTP response headers')
+    parser.add_argument('-ssl', metavar='HOST', help='SSL/TLS Analyzer - Analisis sertifikat SSL')
+    parser.add_argument('-port', type=int, default=443, help='Port untuk SSL analyzer (default: 443)')
+    
     # NGL Spam
     parser.add_argument('-ngl-spam', metavar='USERNAME', help='NGL Spammer - Kirim spam ke ngl.link')
     parser.add_argument('-m', '--message', help='Pesan untuk spam')
     parser.add_argument('-f', '--file', help='File berisi pesan (satu per baris)')
-    parser.add_argument('-cn', '--countt', type=int, default=10, help='Jumlah spam (default: 10)')
+    parser.add_argument('-n', '--jumlah', type=int, default=10, help='Jumlah spam (default: 10)')
     parser.add_argument('-theme', choices=['love', 'hate', 'random', 'scary'], help='Tema pesan random')
     parser.add_argument('-delay', type=float, default=1, help='Delay antar pesan (detik)')
     
@@ -192,8 +228,17 @@ def create_parser():
     parser.add_argument('-subj', '--subject', help='Subject email')
     parser.add_argument('-body', help='Body email')
     
-    # Positional target (untuk scan dan subdomain)
+    # C2 Botnet Framework
+    parser.add_argument('-c2', action='store_true', help='C2 Botnet Framework')
+    parser.add_argument('-startserver', action='store_true', help='Start C2 server')
+    
+    # Positional target (untuk scan, subdomain, dll)
     parser.add_argument('target', nargs='?', help='Target host/IP/domain')
+    
+    # Additional arguments untuk C2
+    parser.add_argument('ip', nargs='?', help='IP address untuk C2 server')
+    parser.add_argument('port', nargs='?', help='Port untuk C2 server')
+    parser.add_argument('password', nargs='?', help='Password untuk C2 server')
     
     return parser
 
@@ -221,6 +266,47 @@ def main():
     
     verbose = args.verbose
     save_file = args.s
+    
+    # ========== C2 BOTNET FRAMEWORK ==========
+    if args.c2 and args.startserver:
+        try:
+            from modules.c2 import C2Server, C2Monitor, C2UI
+            
+            print("\n" + "="*60)
+            print("🤖 OSXNT C2 BOTNET FRAMEWORK")
+            print("="*60)
+            
+            # Parse parameters
+            if args.ip and args.port and args.password:
+                # Direct mode
+                ip = args.ip
+                port = int(args.port)
+                password = args.password
+            else:
+                # Interactive mode
+                ip = input("Enter IP address [0.0.0.0]: ") or "0.0.0.0"
+                port_input = input("Enter port [8080]: ") or "8080"
+                port = int(port_input)
+                password = input("Enter password [osxnt]: ") or "osxnt"
+            
+            print(f"\n[+] Starting C2 server on {ip}:{port}")
+            
+            # Start server
+            server = C2Server(ip=ip, port=port, password=password, verbose=verbose)
+            if server.start():
+                monitor = C2Monitor(server)
+                ui = C2UI(server, monitor)
+                ui.start()
+            else:
+                print("[!] Failed to start C2 server")
+                
+        except ImportError as e:
+            print(f"[!] C2 modules not available: {e}")
+            print("    Make sure modules/c2/ directory exists with required files")
+        except Exception as e:
+            print(f"[!] C2 server error: {e}")
+        
+        return
     
     # ========== IP TRACK ==========
     if args.trackip:
@@ -290,6 +376,18 @@ def main():
             process_single_target(args.target, code_types, args.o, verbose)
         return
     
+    # ========== HTTP HEADER ANALYZER ==========
+    if args.header:
+        analyzer = HTTPAnalyzer(verbose=verbose)
+        analyzer.analyze(args.header, save=save_file)
+        return
+    
+    # ========== SSL/TLS ANALYZER ==========
+    if args.ssl:
+        analyzer = SSLAnalyzer(verbose=verbose)
+        analyzer.analyze(args.ssl, args.port, save=save_file)
+        return
+    
     # ========== NGL SPAM ==========
     if args.ngl_spam:
         username = args.ngl_spam
@@ -300,24 +398,25 @@ def main():
         print(f"📱 NGL SPAMMER - Target: @{username}")
         print("="*50)
         
+        jumlah = args.jumlah if args.jumlah else 10
+        
         # File mode
         if args.file:
-            repeat = args.count if args.count else 1
-            spammer.spam_from_file(args.file, repeat, args.delay)
+            spammer.spam_from_file(args.file, jumlah, args.delay)
         
         # Random theme mode
         elif args.theme:
-            spammer.random_spam(args.theme, args.count, args.delay)
+            spammer.random_spam(args.theme, jumlah, args.delay)
         
         # Single message mode
         elif args.message:
-            spammer.spam(args.message, args.count, args.delay)
+            spammer.spam(args.message, jumlah, args.delay)
         
         else:
             print("[!] Tentukan pesan dengan -m (single), -f (file), atau -theme (random)")
-            print("    Contoh: osxnt.py -ngl-spam user -m 'Hello' -c 50")
-            print("            osxnt.py -ngl-spam user -f messages.txt -c 5")
-            print("            osxnt.py -ngl-spam user -theme love -c 100")
+            print("    Contoh: osxnt.py -ngl-spam user -m 'Hello' -n 50")
+            print("            osxnt.py -ngl-spam user -f messages.txt -n 5")
+            print("            osxnt.py -ngl-spam user -theme love -n 100")
         
         return
     
@@ -332,11 +431,11 @@ def main():
         
         if not args.subject or not args.body:
             print("[!] Gunakan -subj untuk subject dan -body untuk isi email")
-            print("    Contoh: osxnt.py -gmail-spam target@gmail.com -subj 'Hello' -body 'Test' -c 10")
+            print("    Contoh: osxnt.py -gmail-spam target@gmail.com -subj 'Hello' -body 'Test' -n 10")
             sys.exit(1)
         
-        count = args.count if args.count else 10
-        spammer.spam(email, args.subject, args.body, count, args.delay)
+        jumlah = args.jumlah if args.jumlah else 10
+        spammer.spam(email, args.subject, args.body, jumlah, args.delay)
         return
     
     # Jika tidak ada perintah yang dikenali
