@@ -1,6 +1,7 @@
+   
 #!/usr/bin/env python3
 # OSXNT - OSINT Toolkit by alzzdevmaret
-# Version: 2.2.0 (with C2 Botnet Framework)
+# Version: 2.3.0 (with Dark Web Deployer & Email Harvester)
 
 import argparse
 import sys
@@ -13,9 +14,13 @@ from lib.multi_target import read_targets_from_file
 from modules import iptrack, dns, scanport, subdomain
 from modules.webtrack import track_web, process_single_target, process_multi_targets
 from modules.spam import NGLSpammer, GmailSpammer
+from modules.http_analyzer import HTTPAnalyzer
+from modules.ssl_analyzer import SSLAnalyzer
+from modules.email_harvester import EmailHarvester
+from modules.url_extractor import URLExtractor, URLChecker
 
 # Versi tools
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 AUTHOR = "alzzdevmaret"
 GITHUB = "https://github.com/alzzdevmaret/osxnt"
 
@@ -30,7 +35,9 @@ def show_version():
 ║  Platform          : {sys.platform:<35} ║
 ║  Features          : IP Track, Web Track, Port Scan,        ║
 ║                      Subdomain, HTTP/SSL Analyzer,          ║
-║                      Spam Modules, C2 Botnet Framework      ║
+║                      Spam Modules, C2 Botnet Framework,     ║
+║                      Email Harvester, URL Extractor,        ║
+║                      Dark Web Deployer                       ║
 ╚══════════════════════════════════════════════════════════════╝
     """.strip())
 
@@ -112,7 +119,6 @@ USAGE:
 🔬 HTTP & SSL ANALYZER:
 {'='*70}
     -header URL              HTTP Header Analyzer - Analisis response headers
-    
     -ssl HOST                SSL/TLS Analyzer - Analisis sertifikat SSL
     -port PORT               Port untuk SSL analyzer (default: 443)
     
@@ -120,6 +126,33 @@ USAGE:
         osxnt.py -header https://google.com
         osxnt.py -ssl google.com -v
         osxnt.py -ssl facebook.com -port 8443 -s ssl.json
+
+{'='*70}
+📧 EMAIL HARVESTER:
+{'='*70}
+    -email                   Aktifkan Email Harvester
+    -scrap TARGET            Target domain/URL untuk harvest email
+    -depth LEVEL             Kedalaman crawling (default: 2)
+    
+    Contoh:
+        osxnt.py -email -scrap target.com
+        osxnt.py -email -scrap example.com -depth 3 -v
+        osxnt.py -email -scrap @list.txt -s emails.json
+
+{'='*70}
+🔗 URL EXTRACTOR & CHECKER:
+{'='*70}
+    -urlextract TARGET       Extract semua URL dari website
+    -depth LEVEL             Kedalaman crawling (default: 2)
+    
+    -urlcheck                Aktifkan URL Checker
+    -resource TARGET         Target untuk URL checker
+    -type TYPE               Tipe resource (all, images, scripts, styles, links)
+    
+    Contoh:
+        osxnt.py -urlextract target.com -depth 3
+        osxnt.py -urlcheck -resource example.com -type images -v
+        osxnt.py -urlcheck -resource site.com -s check.json
 
 {'='*70}
 📱 SPAM MODULES:
@@ -131,15 +164,16 @@ USAGE:
     -theme {{love,hate,random,scary}}  Tema pesan random
     -delay SECONDS           Delay antar pesan (default: 1)
     
-    Contoh NGL Spam:
-        osxnt.py -ngl-spam username123 -m "Hello" -n 50
+    Contoh:
+        osxnt.py -ngl-spam username -m "Hello" -n 50
         osxnt.py -ngl-spam target -f messages.txt -n 5
 
     -gmail-spam EMAIL        Gmail Spammer - SIMULASI kirim email
     -subj, --subject TEXT    Subject email
     -body TEXT               Body email
+    -n, --jumlah NUMBER      Jumlah email (default: 10)
     
-    Contoh Gmail Spam (Simulasi):
+    Contoh:
         osxnt.py -gmail-spam target@gmail.com -subj "Hello" -body "Test" -n 10
 
 {'='*70}
@@ -147,14 +181,37 @@ USAGE:
 {'='*70}
     -c2                      Aktifkan C2 Botnet Framework
     -startserver             Start C2 server
+    -client                  Connect sebagai client
     
     Format:
         osxnt.py -c2 -startserver [ip] [port] [password]
+        osxnt.py -c2 -client --server IP --port PORT --password PASS
         
     Contoh:
-        osxnt.py -c2 -startserver                     # Interactive mode
-        osxnt.py -c2 -startserver 0.0.0.0 8080 admin  # Direct mode
-        osxnt.py -c2 -startserver -v                   # With verbose
+        osxnt.py -c2 -startserver                     # Interactive
+        osxnt.py -c2 -startserver 0.0.0.0 8080 admin  # Direct
+        osxnt.py -c2 -client --server 192.168.1.100 --port 8080 --pass admin
+
+{'='*70}
+🌑 DARK WEB DEPLOYER:
+{'='*70}
+    -config KEY=VALUE        Konfigurasi dark web (contoh: port=8080)
+    -setup                   Setup dark web environment
+    --auto                   Auto setup dengan default
+    --name NAME              Nama site
+    
+    -darkweb                 Kontrol dark web server
+    -start                   Start dark web server
+    -stop                    Stop dark web server
+    -status                  Tampilkan status dark web
+    -deploy DIR              Deploy file dari directory
+    
+    Contoh:
+        osxnt.py -config port=9090
+        osxnt.py -setup --auto --name "mysite"
+        osxnt.py -darkweb -start
+        osxnt.py -darkweb -status
+        osxnt.py -darkweb -deploy ./mywebsite
 
 {'='*70}
 📌 MULTI-TARGET:
@@ -164,6 +221,7 @@ USAGE:
     Contoh:
         osxnt.py -trackip -ft list_ip.txt
         osxnt.py -trackweb @domains.txt -c html -o output/$result$
+        osxnt.py -email -scrap @list.txt -s all_emails.json
 
 {'='*70}
 🎯 Contoh Lengkap: osxnt.py -webtrack ip -ip google.com -v -s hasil.json
@@ -213,6 +271,18 @@ def create_parser():
     parser.add_argument('-ssl', metavar='HOST', help='SSL/TLS Analyzer - Analisis sertifikat SSL')
     parser.add_argument('-port', type=int, default=443, help='Port untuk SSL analyzer (default: 443)')
     
+    # Email Harvester
+    parser.add_argument('-email', action='store_true', help='Email Harvester - Kumpulkan email dari website')
+    parser.add_argument('-scrap', metavar='TARGET', help='Target untuk email harvester')
+    parser.add_argument('-depth', type=int, default=2, help='Kedalaman crawling (default: 2)')
+    
+    # URL Extractor & Checker
+    parser.add_argument('-urlextract', metavar='TARGET', help='URL Extractor - Extract semua URL dari website')
+    parser.add_argument('-urlcheck', action='store_true', help='URL Checker - Check resources website')
+    parser.add_argument('-resource', metavar='TARGET', help='Target untuk URL checker')
+    parser.add_argument('-type', choices=['all', 'images', 'scripts', 'styles', 'links'], 
+                       default='all', help='Tipe resource untuk dicek')
+    
     # NGL Spam
     parser.add_argument('-ngl-spam', metavar='USERNAME', help='NGL Spammer - Kirim spam ke ngl.link')
     parser.add_argument('-m', '--message', help='Pesan untuk spam')
@@ -229,31 +299,11 @@ def create_parser():
     # C2 Botnet Framework
     parser.add_argument('-c2', action='store_true', help='C2 Botnet Framework')
     parser.add_argument('-startserver', action='store_true', help='Start C2 server')
+    parser.add_argument('-client', action='store_true', help='Connect sebagai client')
+    parser.add_argument('--server', help='Server address untuk client')
+    parser.add_argument('--pass', dest='c2pass', help='Password untuk C2')
     
-    # Positional target (untuk scan, subdomain, dll)
-    parser.add_argument('target', nargs='?', help='Target host/IP/domain')
-    
-    # Additional arguments untuk C2
-    parser.add_argument('ip', nargs='?', help='IP address untuk C2 server')
-    parser.add_argument('port', nargs='?', help='Port untuk C2 server')
-    parser.add_argument('password', nargs='?', help='Password untuk C2 server')
-
-    # Email Harvester
-    parser.add_argument('-email', action='store_true', help='Email Harvester - Kumpulkan email dari website')
-    parser.add_argument('-scrap', metavar='TARGET', help='Target untuk email harvester')
-
-# URL Extractor
-    parser.add_argument('-urlextract', metavar='TARGET', help='URL Extractor - Extract semua URL dari website')
-    parser.add_argument('-depth', type=int, default=2, help='Kedalaman crawling (default: 2)')
-
- # URL Checker
-    parser.add_argument('-urlcheck', action='store_true', help='URL Checker - Check resources website')
-    parser.add_argument('-resource', metavar='TARGET', help='Target untuk URL checker')
-    parser.add_argument('-type', choices=['all', 'images', 'scripts', 'styles', 'links'], 
-                   default='all', help='Tipe resource untuk dicek')
-    # Di bagian create_parser(), tambahkan:
-
-# Dark Web Deployer
+    # Dark Web Deployer
     parser.add_argument('-config', help='Configure dark web settings (format: key=value)')
     parser.add_argument('-setup', action='store_true', help='Setup dark web environment')
     parser.add_argument('--auto', action='store_true', help='Auto setup with defaults')
@@ -263,6 +313,15 @@ def create_parser():
     parser.add_argument('-stop', action='store_true', help='Stop dark web server')
     parser.add_argument('-status', action='store_true', help='Show dark web status')
     parser.add_argument('-deploy', metavar='DIR', help='Deploy files from directory')
+    
+    # Positional target (untuk scan, subdomain, dll)
+    parser.add_argument('target', nargs='?', help='Target host/IP/domain')
+    
+    # Additional arguments untuk C2
+    parser.add_argument('ip', nargs='?', help='IP address untuk C2 server')
+    parser.add_argument('port', nargs='?', help='Port untuk C2 server')
+    parser.add_argument('password', nargs='?', help='Password untuk C2 server')
+    
     return parser
 
 def main():
@@ -289,6 +348,58 @@ def main():
     
     verbose = args.verbose
     save_file = args.s
+    
+    # ========== DARK WEB DEPLOYER ==========
+    if hasattr(args, 'config') and args.config:
+        try:
+            from modules.darkweb import DarkWebDeployer
+            deployer = DarkWebDeployer()
+            
+            if '=' in args.config:
+                key, value = args.config.split('=', 1)
+                if value.isdigit():
+                    value = int(value)
+                deployer.update_config(key, value)
+            else:
+                print("[!] Format: -config key=value (e.g., -config port=9090)")
+        except ImportError:
+            print("[!] Dark Web module not available. Make sure modules/darkweb/ exists")
+        return
+
+    if hasattr(args, 'setup') and args.setup:
+        try:
+            from modules.darkweb import DarkWebDeployer
+            deployer = DarkWebDeployer()
+            deployer.setup(auto=args.auto if hasattr(args, 'auto') else False, 
+                           name=args.name if hasattr(args, 'name') else None)
+        except ImportError:
+            print("[!] Dark Web module not available. Make sure modules/darkweb/ exists")
+        return
+
+    if hasattr(args, 'darkweb') and args.darkweb:
+        try:
+            from modules.darkweb import DarkWebDeployer
+            deployer = DarkWebDeployer()
+            
+            if args.start:
+                deployer.start()
+            elif args.stop:
+                deployer.stop()
+            elif args.status:
+                status = deployer.status_info()
+                print("\n" + "="*50)
+                print("📊 DARK WEB STATUS")
+                print("="*50)
+                for key, value in status.items():
+                    print(f"  {key}: {value}")
+                print("="*50)
+            elif args.deploy:
+                deployer.deploy_files(args.deploy)
+            else:
+                print("[!] Use: -start, -stop, -status, or -deploy DIR")
+        except ImportError:
+            print("[!] Dark Web module not available. Make sure modules/darkweb/ exists")
+        return
     
     # ========== C2 BOTNET FRAMEWORK ==========
     if args.c2 and args.startserver:
@@ -399,6 +510,52 @@ def main():
             process_single_target(args.target, code_types, args.o, verbose)
         return
     
+    # ========== HTTP HEADER ANALYZER ==========
+    if args.header:
+        analyzer = HTTPAnalyzer(verbose=verbose)
+        analyzer.analyze(args.header, save=save_file)
+        return
+    
+    # ========== SSL/TLS ANALYZER ==========
+    if args.ssl:
+        analyzer = SSLAnalyzer(verbose=verbose)
+        analyzer.analyze(args.ssl, args.port, save=save_file)
+        return
+    
+    # ========== EMAIL HARVESTER ==========
+    if args.email and args.scrap:
+        harvester = EmailHarvester(verbose=verbose)
+        
+        # Multi-target dari file
+        if args.scrap.startswith('@'):
+            filename = args.scrap[1:]
+            targets = read_targets_from_file(filename)
+            if not targets:
+                sys.exit(1)
+            print(f"[+] Memproses {len(targets)} target dari {filename}")
+            all_results = []
+            for target in targets:
+                result = harvester.harvest(target, depth=args.depth)
+                all_results.append(result)
+            if save_file:
+                from lib.json_save import save_to_json, prepare_output
+                output = prepare_output(all_results, "multi_target", "email_harvester")
+                save_to_json(output, save_file)
+        else:
+            harvester.harvest(args.scrap, depth=args.depth, save=save_file)
+        return
+    
+    # ========== URL EXTRACTOR ==========
+    if args.urlextract:
+        extractor = URLExtractor(verbose=verbose)
+        extractor.extract(args.urlextract, depth=args.depth, save=save_file)
+        return
+    
+    # ========== URL CHECKER ==========
+    if args.urlcheck and args.resource:
+        checker = URLChecker(verbose=verbose)
+        checker.check(args.resource, resource_type=args.type, save=save_file)
+        return
     
     # ========== NGL SPAM ==========
     if args.ngl_spam:
@@ -449,76 +606,9 @@ def main():
         jumlah = args.jumlah if args.jumlah else 10
         spammer.spam(email, args.subject, args.body, jumlah, args.delay)
         return
-      # ========== EMAIL HARVESTER ==========
-    if args.email and args.scrap:
-        from modules.email_harvester import EmailHarvester
-        harvester = EmailHarvester(verbose=verbose) 
-        harvester.harvest(args.scrap, depth=args.depth if hasattr(args, 'depth') else 2, save=save_file)
-        return
-
-# ========== URL EXTRACTOR ==========
-    if args.urlextract:
-        from modules.url_extractor import URLExtractor
-        extractor = URLExtractor(verbose=verbose)
-        extractor.extract(args.urlextract, depth=args.depth if hasattr(args, 'depth') else 2, save=save_file)
-        return
-
-# ========== URL CHECKER ==========
-    if args.urlcheck and args.resource:
-        from modules.url_extractor import URLChecker
-        checker = URLChecker(verbose=verbose)
-        checker.check(args.resource, resource_type=args.type if hasattr(args, 'type') else 'all', save=save_file)
-        return
-     # Di bagian handler, tambahkan:
-
-# ========== DARK WEB DEPLOYER ==========
-if hasattr(args, 'config') and args.config:
-    from modules.darkweb import DarkWebDeployer
-    deployer = DarkWebDeployer()
-    
-    if '=' in args.config:
-        key, value = args.config.split('=', 1)
-        if value.isdigit():
-            value = int(value)
-        deployer.update_config(key, value)
-    else:
-        print("[!] Format: -config key=value (e.g., -config port=9090)")
-    return
-
-if hasattr(args, 'setup') and args.setup:
-    from modules.darkweb import DarkWebDeployer
-    deployer = DarkWebDeployer()
-    deployer.setup(auto=args.auto if hasattr(args, 'auto') else False, 
-                   name=args.name if hasattr(args, 'name') else None)
-    return
-
-if hasattr(args, 'darkweb') and args.darkweb:
-    from modules.darkweb import DarkWebDeployer
-    deployer = DarkWebDeployer()
-    
-    if args.start:
-        deployer.start()
-    elif args.stop:
-        deployer.stop()
-    elif args.status:
-        status = deployer.status_info()
-        print("\n" + "="*50)
-        print("📊 DARK WEB STATUS")
-        print("="*50)
-        for key, value in status.items():
-            print(f"  {key}: {value}")
-        print("="*50)
-    elif args.deploy:
-        deployer.deploy_files(args.deploy)
-    else:
-        print("[!] Use: -start, -stop, -status, or -deploy DIR")
-    return 
-
     
     # Jika tidak ada perintah yang dikenali
-    print(''' USAGE:
-    osxnt.py [-h] [-v] [-s file.json] [OPTIONS] [target]
-''')
+    print("[!] Perintah tidak dikenal. Gunakan -h untuk melihat bantuan.")
     sys.exit(1)
 
 if __name__ == "__main__":
