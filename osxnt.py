@@ -194,7 +194,13 @@ def create_parser():
     
     # Positional target (untuk scan dan subdomain)
     parser.add_argument('target', nargs='?', help='Target host/IP/domain')
-    
+
+    # HTTP Analyzer
+    parser.add_argument('-header', metavar='URL', help='HTTP Header Analyzer - Analisis HTTP response headers')
+
+# SSL/TLS Analyzer
+    parser.add_argument('-ssl', metavar='HOST', help='SSL/TLS Analyzer - Analisis sertifikat SSL dan keamanan')
+    parser.add_argument('-port', type=int, default=443, help='Port untuk SSL analyzer (default: 443)')
     return parser
 
 def main():
@@ -337,8 +343,21 @@ def main():
         
         count = args.count if args.count else 10
         spammer.spam(email, args.subject, args.body, count, args.delay)
+        
         return
-    
+       # ========== HTTP HEADER ANALYZER ==========
+    if args.header:
+        from modules.http_analyzer import HTTPAnalyzer 
+        analyzer = HTTPAnalyzer(verbose=verbose)
+        analyzer.analyze(args.header, save=save_file)
+        return
+
+# ========== SSL/TLS ANALYZER ==========
+    if args.ssl:
+        from modules.ssl_analyzer import SSLAnalyzer
+        analyzer = SSLAnalyzer(verbose=verbose)
+        analyzer.analyze(args.ssl, args.port, save=save_file)
+        return
     # Jika tidak ada perintah yang dikenali
     print("[!] Perintah tidak dikenal. Gunakan -h untuk melihat bantuan.")
     sys.exit(1)
