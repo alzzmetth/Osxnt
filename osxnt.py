@@ -1,31 +1,45 @@
-   
 #!/usr/bin/env python3
-# OSXNT - OSINT Toolkit by alzzdevmaret
-# Version: 2.3.0 (with Dark Web Deployer & Email Harvester)
+# OSXNT - OSINT Toolkit by alzzmetth
+# Version: 2.4.0 (with Hash & Bruteforce Modules)
 
 import argparse
 import sys
 import os
-import random
 from core.banner import show_banner
 from core.about import about
 from config.config import config
-from lib.multi_target import read_targets_from_file
+
+# Import semua lib yang sudah diupgrade
+from lib.multi_target import read_targets_from_file, sanitize_filename
+from lib.json_save import save_to_json, prepare_output
+from lib.verbose import Verbose
+from lib.csv_save import save_to_csv, append_to_csv, dict_to_csv
+from lib.txt_save import save_to_txt, append_to_txt, save_results
+from lib.file_helper import ensure_dir, get_unique_filename, list_files, delete_file, get_file_size
+from lib.validator import is_valid_ip, is_valid_domain, is_valid_url, is_valid_email, is_valid_port, validate_input
+from lib.converter import json_to_csv, dict_to_txt, size_to_human, timestamp_to_date
+from lib.timer import Timer, measure_time
+
+# Import modules
 from modules import iptrack, dns, scanport, subdomain
 from modules.webtrack import track_web, process_single_target, process_multi_targets
 from modules.spam import NGLSpammer, GmailSpammer
-from modules.http_analyzer import HTTPAnalyzer
-from modules.ssl_analyzer import SSLAnalyzer
 from modules.email_harvester import EmailHarvester
 from modules.url_extractor import URLExtractor, URLChecker
+from modules.c2 import C2Server, C2Monitor, C2UI
+from modules.darkweb import DarkWebDeployer
+
+# Import hash & bruteforce modules (NEW!)
+from modules.hash import HashGenerator, HashChecker, Encoder, Decoder
+from modules.bruteforce import MD5Cracker, SHA256Cracker, SHA1Cracker, WordlistManager
 
 # Versi tools
-VERSION = "2.3.0"
-AUTHOR = "alzzdevmaret"
-GITHUB = "https://github.com/alzzdevmaret/osxnt"
+VERSION = "2.4.0"
+AUTHOR = "alzzmetth"
+GITHUB = "https://github.com/alzzmetth/osxnt"
 
 def show_version():
-    """Tampilkan informasi versi"""
+    """Tampilkan informasi versi dengan lib baru"""
     print(f"""
 ╔══════════════════════════════════════════════════════════════╗
 ║  OSXNT Version     : {VERSION:<35} ║
@@ -33,23 +47,24 @@ def show_version():
 ║  Repository        : {GITHUB:<35} ║
 ║  Python            : {sys.version.split()[0]:<35} ║
 ║  Platform          : {sys.platform:<35} ║
-║  Features          : IP Track, Web Track, Port Scan,        ║
-║                      Subdomain, HTTP/SSL Analyzer,          ║
-║                      Spam Modules, C2 Botnet Framework,     ║
-║                      Email Harvester, URL Extractor,        ║
-║                      Dark Web Deployer                       ║
+║  Lib Version       : 1.1.0 (CSV, TXT, Validator, Timer)    ║
+║  Features          : IP Track, Web Track, Port Scan,       ║
+║                      Subdomain, Email Harvester,           ║
+║                      URL Tools, C2 Framework,              ║
+║                      Dark Web, HASH, Encode/Decode,        ║
+║                      Bruteforce (MD5, SHA1, SHA256)        ║
 ╚══════════════════════════════════════════════════════════════╝
     """.strip())
 
 def show_full_help():
-    """Tampilkan help lengkap dengan format profesional"""
+    """Tampilkan help lengkap dengan semua fitur baru"""
     help_text = f"""
 {'='*70}
 {'OSXNT - OSINT TOOLKIT v' + VERSION:^70}
 {'='*70}
 
 USAGE:
-    osxnt.py [-h] [-v] [-s file.json] [OPTIONS] [target]
+    osxnt.py [-h] [-v] [-s file.json] [-csv file.csv] [-txt file.txt] [OPTIONS] [target]
 
 {'='*70}
 🌐 GLOBAL OPTIONS:
@@ -57,559 +72,691 @@ USAGE:
     -h, --help              Tampilkan menu bantuan ini
     --version, -vr          Tampilkan informasi versi tools
     -v, --verbose           Mode verbose (tampilkan proses detail)
+    -vv                     Double verbose (lebih detail)
     -s file.json            Simpan hasil ke file JSON
+    --csv file.csv          Simpan hasil ke file CSV
+    --txt file.txt          Simpan hasil ke file TXT
+    --auto-save             Auto save dengan timestamp
     -about                  Tampilkan informasi tentang tools
+    --timeout SECONDS       Set timeout (default: 30)
 
 {'='*70}
 📍 IP TRACKING:
 {'='*70}
     -trackip IP             Lacak informasi geolokasi IP
-                            (gunakan 'myip' untuk IP sendiri)
+    ip IP                   Shortcut untuk -trackip
     
     Contoh:
-        osxnt.py -trackip 8.8.8.8
-        osxnt.py -trackip myip -v -s hasil.json
+        osxnt.py ip 8.8.8.8
+        osxnt.py -trackip myip -v --csv hasil.csv
 
 {'='*70}
 🌍 WEB TRACKING:
 {'='*70}
-    -webtrack {{ip,dns}}     Mode web tracking:
-        ip   - Dapatkan IP address dan hostname
-        dns  - Dapatkan semua DNS records (A, MX, NS, TXT, dll)
-    -ip TARGET              Target untuk mode ip
-    -dns TARGET             Target untuk mode dns
+    -webtrack {{ip,dns}}     Mode web tracking
+    web TARGET              Shortcut untuk -webtrack ip
+    dns TARGET              Shortcut untuk -webtrack dns
     
     Contoh:
-        osxnt.py -webtrack ip -ip google.com
-        osxnt.py -webtrack dns -dns facebook.com -s dns.json
+        osxnt.py web google.com
+        osxnt.py dns facebook.com --csv dns.csv
 
 {'='*70}
 🔌 PORT SCANNER:
 {'='*70}
     -scan                    Aktifkan port scanner
-    -p PORTS                 Port yang di-scan (format: 80,443 atau 1-1000)
+    -p PORTS                 Port yang di-scan
+    scan TARGET -p PORTS     Shortcut format
     
     Contoh:
-        osxnt.py -scan -p 80,443,22 192.168.1.1
-        osxnt.py -scan -p 1-1000 scanme.nmap.org -v -s scan.json
+        osxnt.py scan 192.168.1.1 -p 80,443
+        osxnt.py -scan -p 1-1000 target.com --csv ports.csv
 
 {'='*70}
 🔍 SUBDOMAIN ENUMERATION:
 {'='*70}
-    -sbdomain                Cari subdomain dari domain target
-    -use THREADS             Jumlah thread (default: 20)
-    -w WORDLIST              File wordlist kustom (default: requiments/subdomain.txt)
+    -sbdomain                Cari subdomain
+    sub TARGET              Shortcut untuk -sbdomain
+    -t, --threads THREADS    Jumlah thread
     
     Contoh:
-        osxnt.py -sbdomain google.com -use 50
-        osxnt.py -sbdomain target.com -w mylist.txt -v -s subs.json
-
-{'='*70}
-📥 WEB SOURCE DOWNLOAD:
-{'='*70}
-    -trackweb                Download kode sumber website (HTML, CSS, JS)
-    -c CODE                   Tipe kode (html,css,js - pisah koma)
-    -o OUTPUT_DIR             Direktori output (gunakan $result$ untuk nama domain)
-    
-    Contoh:
-        osxnt.py -trackweb example.com -c html,css -o package/$result$ -v
-        osxnt.py -trackweb @list.txt -c js -o hasil/$result$
-
-{'='*70}
-🔬 HTTP & SSL ANALYZER:
-{'='*70}
-    -header URL              HTTP Header Analyzer - Analisis response headers
-    -ssl HOST                SSL/TLS Analyzer - Analisis sertifikat SSL
-    -port PORT               Port untuk SSL analyzer (default: 443)
-    
-    Contoh:
-        osxnt.py -header https://google.com
-        osxnt.py -ssl google.com -v
-        osxnt.py -ssl facebook.com -port 8443 -s ssl.json
+        osxnt.py sub target.com -t 50
+        osxnt.py -sbdomain google.com -w wordlist.txt --csv subs.csv
 
 {'='*70}
 📧 EMAIL HARVESTER:
 {'='*70}
-    -email                   Aktifkan Email Harvester
-    -scrap TARGET            Target domain/URL untuk harvest email
-    -depth LEVEL             Kedalaman crawling (default: 2)
+    -email -scrap TARGET     Harvest email dari website
+    -depth LEVEL             Kedalaman crawling
     
     Contoh:
-        osxnt.py -email -scrap target.com
-        osxnt.py -email -scrap example.com -depth 3 -v
-        osxnt.py -email -scrap @list.txt -s emails.json
+        osxnt.py -email -scrap target.com -depth 3
+        osxnt.py -email -scrap @list.txt --csv emails.csv
 
 {'='*70}
-🔗 URL EXTRACTOR & CHECKER:
+🔗 URL EXTRACTOR:
 {'='*70}
-    -urlextract TARGET       Extract semua URL dari website
-    -depth LEVEL             Kedalaman crawling (default: 2)
-    
-    -urlcheck                Aktifkan URL Checker
-    -resource TARGET         Target untuk URL checker
-    -type TYPE               Tipe resource (all, images, scripts, styles, links)
+    -urlextract TARGET       Extract semua URL
+    -urlcheck -resource TARGET Check resources
     
     Contoh:
-        osxnt.py -urlextract target.com -depth 3
-        osxnt.py -urlcheck -resource example.com -type images -v
-        osxnt.py -urlcheck -resource site.com -s check.json
-
-{'='*70}
-📱 SPAM MODULES:
-{'='*70}
-    -ngl-spam USERNAME       NGL Spammer - Kirim spam ke ngl.link
-    -m, --message TEXT       Pesan untuk spam
-    -f, --file FILE          File berisi pesan (satu per baris)
-    -n, --jumlah NUMBER      Jumlah spam (default: 10)
-    -theme {{love,hate,random,scary}}  Tema pesan random
-    -delay SECONDS           Delay antar pesan (default: 1)
-    
-    Contoh:
-        osxnt.py -ngl-spam username -m "Hello" -n 50
-        osxnt.py -ngl-spam target -f messages.txt -n 5
-
-    -gmail-spam EMAIL        Gmail Spammer - SIMULASI kirim email
-    -subj, --subject TEXT    Subject email
-    -body TEXT               Body email
-    -n, --jumlah NUMBER      Jumlah email (default: 10)
-    
-    Contoh:
-        osxnt.py -gmail-spam target@gmail.com -subj "Hello" -body "Test" -n 10
-
-{'='*70}
-🤖 C2 BOTNET FRAMEWORK:
-{'='*70}
-    -c2                      Aktifkan C2 Botnet Framework
-    -startserver             Start C2 server
-    -client                  Connect sebagai client
-    
-    Format:
-        osxnt.py -c2 -startserver [ip] [port] [password]
-        osxnt.py -c2 -client --server IP --port PORT --password PASS
-        
-    Contoh:
-        osxnt.py -c2 -startserver                     # Interactive
-        osxnt.py -c2 -startserver 0.0.0.0 8080 admin  # Direct
-        osxnt.py -c2 -client --server 192.168.1.100 --port 8080 --pass admin
+        osxnt.py -urlextract target.com
+        osxnt.py -urlcheck -resource example.com --type images
 
 {'='*70}
 🌑 DARK WEB DEPLOYER:
 {'='*70}
-    -config KEY=VALUE        Konfigurasi dark web (contoh: port=8080)
-    -setup                   Setup dark web environment
-    --auto                   Auto setup dengan default
-    --name NAME              Nama site
-    
-    -darkweb                 Kontrol dark web server
-    -start                   Start dark web server
-    -stop                    Stop dark web server
-    -status                  Tampilkan status dark web
-    -deploy DIR              Deploy file dari directory
+    -darkweb -start          Start dark web server
+    -darkweb -create NAME    Create hidden service
+    -darkweb -list           List all services
+    -darkweb -status NAME    Check service status
     
     Contoh:
-        osxnt.py -config port=9090
-        osxnt.py -setup --auto --name "mysite"
-        osxnt.py -darkweb -start
-        osxnt.py -darkweb -status
-        osxnt.py -darkweb -deploy ./mywebsite
+        osxnt.py -darkweb -create --name mysite --port 8080
+        osxnt.py -darkweb -start mysite
 
 {'='*70}
-📌 MULTI-TARGET:
+🤖 C2 FRAMEWORK:
 {'='*70}
-    Gunakan @file.txt pada parameter target untuk memproses banyak target dari file
+    -c2 -startserver         Start C2 server
+    -c2 -client              Connect sebagai client
     
     Contoh:
-        osxnt.py -trackip -ft list_ip.txt
-        osxnt.py -trackweb @domains.txt -c html -o output/$result$
-        osxnt.py -email -scrap @list.txt -s all_emails.json
+        osxnt.py -c2 -startserver 0.0.0.0 8080 admin
 
 {'='*70}
-🎯 Contoh Lengkap: osxnt.py -webtrack ip -ip google.com -v -s hasil.json
+🔐 HASH MODULE:
+{'='*70}
+    -hash --text TEXT        Generate hash dari text
+    -hash --file FILE        Generate hash dari file
+    --algorithm ALGO         Algorithm (md5,sha1,sha256,sha512)
+    --verify HASH            Verify hash
+    
+    Contoh:
+        osxnt.py -hash --text "password" --algorithm md5
+        osxnt.py -hash --file document.pdf --algorithm sha256
+        osxnt.py -hash --text "pass" --verify 5f4dcc3b5aa7
+
+{'='*70}
+🔄 ENCODE/DECODE:
+{'='*70}
+    -encode --type TYPE      Encode text
+    -decode --type TYPE      Decode text
+    --type TYPE              base64, base32, base16, rot13, url
+    
+    Contoh:
+        osxnt.py -encode --type base64 --text "secret"
+        osxnt.py -decode --type auto --text "c2VjcmV0"
+        osxnt.py -encode --type rot13 --text "hello"
+
+{'='*70}
+🔓 BRUTEFORCE CRACKER:
+{'='*70}
+    -crack --hash HASH       Crack hash
+    --method METHOD          wordlist, bruteforce, hybrid
+    --wordlist NAME          Wordlist to use
+    --min-len LEN            Minimum length
+    --max-len LEN            Maximum length
+    
+    Contoh:
+        osxnt.py -crack --hash 5f4dcc3b5aa7 --method wordlist
+        osxnt.py -crack --hash 5f4dcc3b5aa7 --method hybrid
+        osxnt.py -crack --hash e3ceb5881a0a --method bruteforce --max-len 4
+
+{'='*70}
+📚 WORDLIST MANAGER:
+{'='*70}
+    -wordlist --list         List available wordlists
+    -wordlist --download NAME Download wordlist
+    -wordlist --create FILE  Create custom wordlist
+    
+    Contoh:
+        osxnt.py -wordlist --list
+        osxnt.py -wordlist --download rockyou
+        osxnt.py -wordlist --create mylist.txt --words "pass,admin,123"
+
+{'='*70}
+📌 MULTI-TARGET & OUTPUT:
+{'='*70}
+    Gunakan @file.txt untuk multi-target
+    --csv file.csv           Export ke CSV
+    --txt file.txt           Export ke TXT
+    --auto-save              Auto save dengan timestamp
+    
+    Contoh:
+        osxnt.py ip @list.txt --csv results.csv
+        osxnt.py sub @domains.txt --txt subs.txt --auto-save
+
+{'='*70}
+🎯 Shortcuts:
+    ip = -trackip
+    web = -webtrack ip
+    dns = -webtrack dns
+    scan = -scan
+    sub = -sbdomain
 {'='*70}
 """
     print(help_text)
 
 def create_parser():
-    """Buat parser dengan format lama (tanpa subparser)"""
+    """Buat parser dengan semua fitur baru"""
     parser = argparse.ArgumentParser(
         description="OSXNT - OSINT Toolkit",
-        usage="osxnt.py [-h] [-v] [-s file.json] [OPTIONS] [target]",
+        usage="osxnt.py [-h] [-v] [-s file.json] [--csv file.csv] [--txt file.txt] [OPTIONS] [target]",
         add_help=False
     )
     
-    # Global options
+    # ===== GLOBAL OPTIONS =====
     parser.add_argument('-h', '--help', action='store_true', help='Tampilkan menu bantuan')
     parser.add_argument('--version', '-vr', action='store_true', help='Tampilkan informasi versi')
     parser.add_argument('-v', '--verbose', action='store_true', help='Mode verbose')
+    parser.add_argument('-vv', action='store_true', help='Double verbose mode')
     parser.add_argument('-s', metavar='file.json', help='Simpan hasil ke file JSON')
+    parser.add_argument('--csv', metavar='file.csv', help='Simpan hasil ke file CSV')
+    parser.add_argument('--txt', metavar='file.txt', help='Simpan hasil ke file TXT')
+    parser.add_argument('--auto-save', action='store_true', help='Auto save dengan timestamp')
     parser.add_argument('-about', action='store_true', help='Tampilkan informasi tools')
+    parser.add_argument('--timeout', type=int, default=30, help='Timeout dalam detik')
     
-    # IP tracking
-    parser.add_argument('-trackip', metavar='IP', help='Lacak informasi IP (gunakan "myip" untuk IP sendiri)')
+    # ===== SHORTCUTS =====
+    parser.add_argument('ip', nargs='?', help='Shortcut untuk -trackip')
+    parser.add_argument('web', nargs='?', help='Shortcut untuk -webtrack ip')
+    parser.add_argument('dns', nargs='?', help='Shortcut untuk -webtrack dns')
+    parser.add_argument('scan', nargs='?', help='Shortcut untuk -scan')
+    parser.add_argument('sub', nargs='?', help='Shortcut untuk -sbdomain')
     
-    # Web tracking
-    parser.add_argument('-webtrack', choices=['ip', 'dns'], help='Web tracking mode: ip atau dns')
+    # ===== IP TRACKING =====
+    parser.add_argument('-trackip', metavar='IP', help='Lacak informasi IP')
+    
+    # ===== WEB TRACKING =====
+    parser.add_argument('-webtrack', choices=['ip', 'dns'], help='Web tracking mode')
     parser.add_argument('-ip', metavar='TARGET', help='Target untuk -webtrack ip')
     parser.add_argument('-dns', metavar='TARGET', help='Target untuk -webtrack dns')
     
-    # Port scanner
+    # ===== PORT SCANNER =====
     parser.add_argument('-scan', action='store_true', help='Aktifkan port scanner')
-    parser.add_argument('-p', metavar='PORTS', help='Ports untuk di-scan (contoh: 80,443 atau 1-1000)')
+    parser.add_argument('-p', metavar='PORTS', help='Ports untuk di-scan')
     
-    # Subdomain
+    # ===== SUBDOMAIN =====
     parser.add_argument('-sbdomain', action='store_true', help='Aktifkan subdomain scanner')
-    parser.add_argument('-use', metavar='THREADS', type=int, help='Jumlah thread untuk subdomain scan')
+    parser.add_argument('-t', '--threads', metavar='THREADS', type=int, help='Jumlah thread')
     parser.add_argument('-w', metavar='WORDLIST', help='File wordlist kustom')
     
-    # Trackweb (download source)
+    # ===== TRACKWEB =====
     parser.add_argument('-trackweb', action='store_true', help='Download kode sumber website')
-    parser.add_argument('-c', metavar='CODE', help='Tipe kode (html,css,js - pisah koma)')
+    parser.add_argument('-c', metavar='CODE', help='Tipe kode (html,css,js)')
     parser.add_argument('-o', metavar='OUTPUT_DIR', default='package/$result$', help='Direktori output')
     
-    # HTTP & SSL Analyzer
-    parser.add_argument('-header', metavar='URL', help='HTTP Header Analyzer - Analisis HTTP response headers')
-    parser.add_argument('-ssl', metavar='HOST', help='SSL/TLS Analyzer - Analisis sertifikat SSL')
-    parser.add_argument('-port', type=int, default=443, help='Port untuk SSL analyzer (default: 443)')
-    
-    # Email Harvester
-    parser.add_argument('-email', action='store_true', help='Email Harvester - Kumpulkan email dari website')
+    # ===== EMAIL HARVESTER =====
+    parser.add_argument('-email', action='store_true', help='Email Harvester')
     parser.add_argument('-scrap', metavar='TARGET', help='Target untuk email harvester')
-    parser.add_argument('-depth', type=int, default=2, help='Kedalaman crawling (default: 2)')
+    parser.add_argument('-depth', type=int, default=2, help='Kedalaman crawling')
     
-    # URL Extractor & Checker
-    parser.add_argument('-urlextract', metavar='TARGET', help='URL Extractor - Extract semua URL dari website')
-    parser.add_argument('-urlcheck', action='store_true', help='URL Checker - Check resources website')
+    # ===== URL EXTRACTOR =====
+    parser.add_argument('-urlextract', metavar='TARGET', help='URL Extractor')
+    parser.add_argument('-urlcheck', action='store_true', help='URL Checker')
     parser.add_argument('-resource', metavar='TARGET', help='Target untuk URL checker')
     parser.add_argument('-type', choices=['all', 'images', 'scripts', 'styles', 'links'], 
-                       default='all', help='Tipe resource untuk dicek')
+                       default='all', help='Tipe resource')
     
-    # NGL Spam
-    parser.add_argument('-ngl-spam', metavar='USERNAME', help='NGL Spammer - Kirim spam ke ngl.link')
+    # ===== SPAM MODULES =====
+    parser.add_argument('-ngl-spam', metavar='USERNAME', help='NGL Spammer')
     parser.add_argument('-m', '--message', help='Pesan untuk spam')
-    parser.add_argument('-f', '--file', help='File berisi pesan (satu per baris)')
-    parser.add_argument('-n', '--jumlah', type=int, default=10, help='Jumlah spam (default: 10)')
-    parser.add_argument('-theme', choices=['love', 'hate', 'random', 'scary'], help='Tema pesan random')
-    parser.add_argument('-delay', type=float, default=1, help='Delay antar pesan (detik)')
+    parser.add_argument('-f', '--file', help='File berisi pesan')
+    parser.add_argument('-n', '--jumlah', type=int, default=10, help='Jumlah spam')
+    parser.add_argument('-theme', choices=['love', 'hate', 'random', 'scary'], help='Tema pesan')
+    parser.add_argument('-delay', type=float, default=1, help='Delay antar pesan')
     
-    # Gmail Spam (Simulasi)
-    parser.add_argument('-gmail-spam', metavar='EMAIL', help='Gmail Spammer - SIMULASI kirim email')
+    parser.add_argument('-gmail-spam', metavar='EMAIL', help='Gmail Spammer (simulasi)')
     parser.add_argument('-subj', '--subject', help='Subject email')
     parser.add_argument('-body', help='Body email')
     
-    # C2 Botnet Framework
+    # ===== C2 FRAMEWORK =====
     parser.add_argument('-c2', action='store_true', help='C2 Botnet Framework')
     parser.add_argument('-startserver', action='store_true', help='Start C2 server')
     parser.add_argument('-client', action='store_true', help='Connect sebagai client')
     parser.add_argument('--server', help='Server address untuk client')
     parser.add_argument('--pass', dest='c2pass', help='Password untuk C2')
     
-    # Dark Web Deployer
-    parser.add_argument('-config', help='Configure dark web settings (format: key=value)')
-    parser.add_argument('-setup', action='store_true', help='Setup dark web environment')
-    parser.add_argument('--auto', action='store_true', help='Auto setup with defaults')
-    parser.add_argument('--name', help='Site name for dark web')
+    # ===== DARK WEB =====
     parser.add_argument('-darkweb', action='store_true', help='Dark web control')
-    parser.add_argument('-start', action='store_true', help='Start dark web server')
-    parser.add_argument('-stop', action='store_true', help='Stop dark web server')
-    parser.add_argument('-status', action='store_true', help='Show dark web status')
-    parser.add_argument('-deploy', metavar='DIR', help='Deploy files from directory')
+    parser.add_argument('-create', action='store_true', help='Create hidden service')
+    parser.add_argument('-start', action='store_true', help='Start service')
+    parser.add_argument('-stop', action='store_true', help='Stop service')
+    parser.add_argument('-restart', action='store_true', help='Restart service')
+    parser.add_argument('-list', action='store_true', help='List all services')
+    parser.add_argument('-status', action='store_true', help='Show status')
+    parser.add_argument('-logs', action='store_true', help='Show logs')
+    parser.add_argument('--name', help='Service name')
+    parser.add_argument('--port', type=int, default=8080, help='Port for service')
     
-    # Positional target (untuk scan, subdomain, dll)
+    # ===== HASH MODULE =====
+    parser.add_argument('-hash', action='store_true', help='Hash generator')
+    parser.add_argument('--text', help='Text to hash')
+    parser.add_argument('--file', help='File to hash')
+    parser.add_argument('--algorithm', choices=['md5', 'sha1', 'sha256', 'sha512', 'blake2b'], 
+                       default='md5', help='Hash algorithm')
+    parser.add_argument('--verify', help='Verify hash')
+    parser.add_argument('--find', help='Find file by hash')
+    parser.add_argument('--directory', help='Directory for find operation')
+    
+    # ===== ENCODE/DECODE =====
+    parser.add_argument('-encode', action='store_true', help='Encode text')
+    parser.add_argument('-decode', action='store_true', help='Decode text')
+    parser.add_argument('--type', choices=['base64', 'base32', 'base16', 'base85', 'rot13', 'url', 'auto'],
+                       default='base64', help='Encoding type')
+    
+    # ===== BRUTEFORCE =====
+    parser.add_argument('-crack', action='store_true', help='Crack hash')
+    parser.add_argument('--hash', help='Target hash to crack')
+    parser.add_argument('--method', choices=['wordlist', 'bruteforce', 'hybrid', 'auto'],
+                       default='auto', help='Cracking method')
+    parser.add_argument('--wordlist', help='Wordlist name')
+    parser.add_argument('--min-len', type=int, default=1, help='Minimum length')
+    parser.add_argument('--max-len', type=int, default=6, help='Maximum length')
+    
+    # ===== WORDLIST MANAGER =====
+    parser.add_argument('-wordlist', action='store_true', help='Manage wordlists')
+    parser.add_argument('--list-wl', action='store_true', help='List available wordlists')
+    parser.add_argument('--download', help='Download wordlist')
+    parser.add_argument('--create-wl', help='Create custom wordlist')
+    parser.add_argument('--words', help='Words for custom wordlist (comma separated)')
+    
+    # Positional target
     parser.add_argument('target', nargs='?', help='Target host/IP/domain')
-    
-    # Additional arguments untuk C2
-    parser.add_argument('ip', nargs='?', help='IP address untuk C2 server')
-    parser.add_argument('port', nargs='?', help='Port untuk C2 server')
-    parser.add_argument('password', nargs='?', help='Password untuk C2 server')
     
     return parser
 
 def main():
-    # Tampilkan banner
-    show_banner()
-    
-    parser = create_parser()
-    args = parser.parse_args()
-    
-    # Handle help
-    if args.help or len(sys.argv) == 1:
-        show_full_help()
-        sys.exit(0)
-    
-    # Handle version
-    if getattr(args, 'version', False) or getattr(args, 'vr', False):
-        show_version()
-        sys.exit(0)
-    
-    # Handle about
-    if args.about:
-        about()
-        sys.exit(0)
-    
-    verbose = args.verbose
-    save_file = args.s
-    
-    # ========== DARK WEB DEPLOYER ==========
-    if hasattr(args, 'config') and args.config:
-        try:
-            from modules.darkweb import DarkWebDeployer
-            deployer = DarkWebDeployer()
+    # Timer untuk seluruh eksekusi
+    with Timer("Total execution"):
+        # Tampilkan banner
+        show_banner()
+        
+        parser = create_parser()
+        args = parser.parse_args()
+        
+        # Setup verbose
+        verbose = args.verbose or args.vv
+        double_verbose = args.vv
+        
+        # Setup output files
+        save_file = args.s
+        csv_file = args.csv
+        txt_file = args.txt
+        
+        # Auto-save dengan timestamp
+        if args.auto_save:
+            from datetime import datetime
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            if not save_file:
+                save_file = f"osxnt_{timestamp}.json"
+            if not csv_file and args.csv is None:
+                csv_file = f"osxnt_{timestamp}.csv"
+            if not txt_file and args.txt is None:
+                txt_file = f"osxnt_{timestamp}.txt"
+        
+        # ===== HANDLE HELP =====
+        if args.help or len(sys.argv) == 1:
+            show_full_help()
+            sys.exit(0)
+        
+        # ===== HANDLE VERSION =====
+        if getattr(args, 'version', False) or getattr(args, 'vr', False):
+            show_version()
+            sys.exit(0)
+        
+        # ===== HANDLE ABOUT =====
+        if args.about:
+            about()
+            sys.exit(0)
+        
+        # ===== SHORTCUT HANDLERS =====
+        if args.ip and not any([args.trackip, args.webtrack, args.scan, args.sbdomain]):
+            args.trackip = args.ip
+        
+        if args.web and not args.webtrack:
+            args.webtrack = 'ip'
+            args.ip = args.web
+        
+        if args.dns and not args.webtrack:
+            args.webtrack = 'dns'
+            args.dns = args.dns
+        
+        if args.scan and not args.scan:
+            args.scan = True
+            if args.scan != True:
+                args.target = args.scan
+        
+        if args.sub and not args.sbdomain:
+            args.sbdomain = True
+            args.target = args.sub
+        
+        # ===== WORDLIST MANAGER =====
+        if args.wordlist:
+            wm = WordlistManager(verbose=verbose)
             
-            if '=' in args.config:
-                key, value = args.config.split('=', 1)
-                if value.isdigit():
-                    value = int(value)
-                deployer.update_config(key, value)
+            if args.list_wl:
+                wm.list_available()
+            
+            elif args.download:
+                wm.download(args.download)
+            
+            elif args.create_wl:
+                if args.words:
+                    words = [w.strip() for w in args.words.split(',')]
+                    wm.create_custom(args.create_wl, words)
+                else:
+                    print("[!] Gunakan --words untuk daftar kata")
+            
+            return
+        
+        # ===== HASH MODULE =====
+        if args.hash:
+            generator = HashGenerator(verbose)
+            checker = HashChecker(verbose)
+            
+            if args.text:
+                if args.verify:
+                    result = checker.verify_string(args.text, args.verify, args.algorithm)
+                else:
+                    result = generator.hash_string(args.text, args.algorithm)
+                    if result and txt_file:
+                        save_to_txt(f"{args.algorithm}: {result}", txt_file)
+            
+            elif args.file:
+                result = generator.hash_file(args.file, args.algorithm)
+                if result and txt_file:
+                    save_to_txt(f"{args.file}: {result}", txt_file)
+            
+            elif args.find and args.directory:
+                result = checker.find_matching_file(args.directory, args.find, args.algorithm)
+            
+            return
+        
+        # ===== ENCODE/DECODE MODULE =====
+        if args.encode and args.text:
+            encoder = Encoder(verbose)
+            
+            if args.type == 'base64':
+                result = encoder.base64_encode(args.text)
+            elif args.type == 'base32':
+                result = encoder.base32_encode(args.text)
+            elif args.type == 'base16':
+                result = encoder.base16_encode(args.text)
+            elif args.type == 'base85':
+                result = encoder.base85_encode(args.text)
+            elif args.type == 'rot13':
+                result = encoder.rot13_encode(args.text)
+            elif args.type == 'url':
+                result = encoder.url_encode(args.text)
+            
+            if result and txt_file:
+                save_to_txt(result, txt_file)
+            
+            return
+        
+        if args.decode and args.text:
+            decoder = Decoder(verbose)
+            
+            if args.type == 'auto':
+                results = decoder.auto_decode(args.text)
+                if results and txt_file:
+                    for method, decoded in results.items():
+                        save_to_txt(f"{method}: {decoded}", txt_file, 'a')
             else:
-                print("[!] Format: -config key=value (e.g., -config port=9090)")
-        except ImportError:
-            print("[!] Dark Web module not available. Make sure modules/darkweb/ exists")
-        return
-
-    if hasattr(args, 'setup') and args.setup:
-        try:
-            from modules.darkweb import DarkWebDeployer
-            deployer = DarkWebDeployer()
-            deployer.setup(auto=args.auto if hasattr(args, 'auto') else False, 
-                           name=args.name if hasattr(args, 'name') else None)
-        except ImportError:
-            print("[!] Dark Web module not available. Make sure modules/darkweb/ exists")
-        return
-
-    if hasattr(args, 'darkweb') and args.darkweb:
-        try:
-            from modules.darkweb import DarkWebDeployer
-            deployer = DarkWebDeployer()
+                if args.type == 'base64':
+                    result = decoder.base64_decode(args.text)
+                elif args.type == 'base32':
+                    result = decoder.base32_decode(args.text)
+                elif args.type == 'base16':
+                    result = decoder.base16_decode(args.text)
+                elif args.type == 'base85':
+                    result = decoder.base85_decode(args.text)
+                elif args.type == 'rot13':
+                    result = decoder.rot13_decode(args.text)
+                elif args.type == 'url':
+                    result = decoder.url_decode(args.text)
+                
+                if result and txt_file:
+                    save_to_txt(result, txt_file)
             
-            if args.start:
-                deployer.start()
-            elif args.stop:
-                deployer.stop()
-            elif args.status:
-                status = deployer.status_info()
-                print("\n" + "="*50)
-                print("📊 DARK WEB STATUS")
-                print("="*50)
-                for key, value in status.items():
-                    print(f"  {key}: {value}")
-                print("="*50)
-            elif args.deploy:
-                deployer.deploy_files(args.deploy)
+            return
+        
+        # ===== BRUTEFORCE CRACKER =====
+        if args.crack and args.hash:
+            # Auto detect algorithm based on hash length
+            hash_len = len(args.hash)
+            if hash_len == 32:
+                cracker = MD5Cracker(verbose)
+            elif hash_len == 40:
+                cracker = SHA1Cracker(verbose)
+            elif hash_len == 64:
+                cracker = SHA256Cracker(verbose)
             else:
-                print("[!] Use: -start, -stop, -status, or -deploy DIR")
-        except ImportError:
-            print("[!] Dark Web module not available. Make sure modules/darkweb/ exists")
-        return
-    
-    # ========== C2 BOTNET FRAMEWORK ==========
-    if args.c2 and args.startserver:
-        try:
-            from modules.c2 import C2Server, C2Monitor, C2UI
+                print("[!] Could not detect hash algorithm")
+                return
             
-            print("\n" + "="*60)
-            print("🤖 OSXNT C2 BOTNET FRAMEWORK")
-            print("="*60)
+            result = cracker.crack(
+                args.hash,
+                method=args.method,
+                wordlist=args.wordlist or 'rockyou'
+            )
             
+            if result and txt_file:
+                save_to_txt(f"Hash: {args.hash}\nPassword: {result}", txt_file)
+            
+            return
+        
+        # ===== IP TRACKING =====
+        if args.trackip:
+            with Timer("IP Tracking"):
+                if args.trackip.lower() == 'myip':
+                    print("[*] Mendapatkan IP publik...")
+                    myip = iptrack.get_public_ip()
+                    if myip:
+                        print(f"[+] IP Anda: {myip}")
+                        result = iptrack.track_ip(myip, verbose)
+                    else:
+                        print("[!] Gagal mendapatkan IP publik")
+                        return
+                else:
+                    # Validasi IP
+                    if not is_valid_ip(args.trackip) and not is_valid_domain(args.trackip):
+                        print("[!] Invalid IP or domain format")
+                        return
+                    
+                    result = iptrack.track_ip(args.trackip, verbose)
+                
+                # Save results
+                if result:
+                    if save_file:
+                        save_to_json(prepare_output(result, args.trackip, "iptrack"), save_file)
+                    if csv_file:
+                        if isinstance(result, dict):
+                            save_to_csv([result], csv_file)
+                    if txt_file:
+                        save_results(result, txt_file, f"IP Track: {args.trackip}")
+            
+            return
+        
+        # ===== WEB TRACKING =====
+        if args.webtrack:
+            with Timer("Web Tracking"):
+                if args.webtrack == 'ip':
+                    if not args.ip:
+                        print("[!] Gunakan -ip untuk menentukan target")
+                        return
+                    result = track_web(args.ip, verbose)
+                elif args.webtrack == 'dns':
+                    if not args.dns:
+                        print("[!] Gunakan -dns untuk menentukan target")
+                        return
+                    result = dns.dns_lookup(args.dns, verbose=verbose)
+                
+                # Save results
+                if result:
+                    if save_file:
+                        save_to_json(prepare_output(result, args.ip or args.dns, "webtrack"), save_file)
+                    if csv_file and isinstance(result, dict):
+                        save_to_csv([result], csv_file)
+                    if txt_file:
+                        save_results(result, txt_file, f"Web Track: {args.ip or args.dns}")
+            
+            return
+        
+        # ===== PORT SCANNER =====
+        if args.scan:
+            if not args.p or not args.target:
+                print("[!] Gunakan: osxnt.py -scan -p <ports> <target>")
+                return
+            
+            with Timer("Port Scan"):
+                result = scanport.port_scan(args.target, args.p, verbose=verbose)
+                
+                if result and csv_file:
+                    save_to_csv(result, csv_file)
+                if result and txt_file:
+                    save_results(result, txt_file, f"Port Scan: {args.target}")
+            
+            return
+        
+        # ===== SUBDOMAIN SCANNER =====
+        if args.sbdomain:
+            if not args.target:
+                print("[!] Masukkan domain target")
+                return
+            
+            wordlist = args.w if args.w else "requiments/subdomain.txt"
+            threads = args.threads if args.threads else 20
+            
+            # Validasi domain
+            if not is_valid_domain(args.target):
+                print("[!] Invalid domain format")
+                return
+            
+            with Timer("Subdomain Scan"):
+                result = subdomain.subdomain_scan(args.target, wordlist, threads, verbose=verbose)
+                
+                if result and csv_file:
+                    save_to_csv(result, csv_file)
+                if result and txt_file:
+                    save_results(result, txt_file, f"Subdomains: {args.target}")
+            
+            return
+        
+        # ===== EMAIL HARVESTER =====
+        if args.email and args.scrap:
+            harvester = EmailHarvester(verbose=verbose)
+            
+            # Multi-target dari file
+            if args.scrap.startswith('@'):
+                filename = args.scrap[1:]
+                targets = read_targets_from_file(filename)
+                if not targets:
+                    return
+                
+                print(f"[+] Memproses {len(targets)} target")
+                all_results = []
+                
+                for target in targets:
+                    if is_valid_domain(target) or is_valid_url(target):
+                        result = harvester.harvest(target, depth=args.depth)
+                        if result:
+                            all_results.append(result)
+                
+                if all_results and csv_file:
+                    # Flatten untuk CSV
+                    flat_results = []
+                    for res in all_results:
+                        for email in res.get('emails', []):
+                            flat_results.append(email)
+                    save_to_csv(flat_results, csv_file)
+                
+            else:
+                result = harvester.harvest(args.scrap, depth=args.depth)
+                
+                if result and csv_file:
+                    save_to_csv(result.get('emails', []), csv_file)
+                if result and txt_file:
+                    save_results(result, txt_file, f"Emails from {args.scrap}")
+            
+            return
+        
+        # ===== URL EXTRACTOR =====
+        if args.urlextract:
+            extractor = URLExtractor(verbose=verbose)
+            result = extractor.extract(args.urlextract, depth=args.depth)
+            
+            if result and csv_file:
+                # Flatten URLs
+                all_urls = []
+                for cat, urls in result.get('categories', {}).items():
+                    for url in urls:
+                        all_urls.append({'category': cat, 'url': url})
+                save_to_csv(all_urls, csv_file)
+            
+            return
+        
+        # ===== URL CHECKER =====
+        if args.urlcheck and args.resource:
+            checker = URLChecker(verbose=verbose)
+            result = checker.check(args.resource, resource_type=args.type)
+            
+            if result and csv_file:
+                # Flatten broken links
+                broken = result.get('broken_links', [])
+                save_to_csv(broken, csv_file)
+            
+            return
+        
+        # ===== DARK WEB =====
+        if args.darkweb:
+            deployer = DarkWebDeployer()
+            
+            if args.create and args.name:
+                deployer.create_service(args.name, args.port)
+            
+            elif args.start and args.name:
+                deployer.start_service(args.name)
+            
+            elif args.stop and args.name:
+                deployer.stop_service(args.name)
+            
+            elif args.restart and args.name:
+                deployer.restart_service(args.name)
+            
+            elif args.list:
+                deployer.list_services()
+            
+            elif args.status and args.name:
+                deployer.service_status(args.name)
+            
+            elif args.logs and args.name:
+                deployer.show_logs(args.name)
+            
+            else:
+                print("[!] Gunakan: --create, --start, --stop, --list, dll")
+            
+            return
+        
+        # ===== C2 FRAMEWORK =====
+        if args.c2 and args.startserver:
             # Parse parameters
-            if args.ip and args.port and args.password:
-                # Direct mode
-                ip = args.ip
-                port = int(args.port)
-                password = args.password
-            else:
-                # Interactive mode
-                ip = input("Enter IP address [0.0.0.0]: ") or "0.0.0.0"
-                port_input = input("Enter port [8080]: ") or "8080"
-                port = int(port_input)
-                password = input("Enter password [osxnt]: ") or "osxnt"
+            ip = args.target if args.target else input("IP [0.0.0.0]: ") or "0.0.0.0"
+            port = args.port if hasattr(args, 'port') else int(input("Port [8080]: ") or "8080")
+            password = args.c2pass if args.c2pass else input("Password [osxnt]: ") or "osxnt"
             
-            print(f"\n[+] Starting C2 server on {ip}:{port}")
-            
-            # Start server
             server = C2Server(ip=ip, port=port, password=password, verbose=verbose)
             if server.start():
                 monitor = C2Monitor(server)
                 ui = C2UI(server, monitor)
                 ui.start()
-            else:
-                print("[!] Failed to start C2 server")
-                
-        except ImportError as e:
-            print(f"[!] C2 modules not available: {e}")
-            print("    Make sure modules/c2/ directory exists with required files")
-        except Exception as e:
-            print(f"[!] C2 server error: {e}")
+            
+            return
         
-        return
-    
-    # ========== IP TRACK ==========
-    if args.trackip:
-        if args.trackip.lower() == 'myip':
-            print("[*] Mendapatkan IP publik...")
-            myip = iptrack.get_public_ip()
-            if myip:
-                print(f"[+] IP Anda: {myip}")
-                iptrack.track_ip(myip, verbose, save_file)
-            else:
-                print("[!] Gagal mendapatkan IP publik")
-        else:
-            iptrack.track_ip(args.trackip, verbose, save_file)
-        return
-    
-    # ========== WEB TRACK ==========
-    if args.webtrack:
-        if args.webtrack == 'ip':
-            if not args.ip:
-                print("[!] Gunakan -ip untuk menentukan target")
-                sys.exit(1)
-            track_web(args.ip, verbose, save_file)
-        elif args.webtrack == 'dns':
-            if not args.dns:
-                print("[!] Gunakan -dns untuk menentukan target")
-                sys.exit(1)
-            dns.dns_lookup(args.dns, verbose=verbose, save=save_file)
-        return
-    
-    # ========== PORT SCAN ==========
-    if args.scan:
-        if not args.p or not args.target:
-            print("[!] Gunakan: osxnt.py -scan -p <ports> <target>")
-            print("    Contoh: osxnt.py -scan -p 80,443 192.168.1.1")
-            sys.exit(1)
-        scanport.port_scan(args.target, args.p, verbose=verbose, save=save_file)
-        return
-    
-    # ========== SUBDOMAIN ==========
-    if args.sbdomain:
-        if not args.target:
-            print("[!] Masukkan domain target")
-            sys.exit(1)
-        wordlist = args.w if args.w else "requiments/subdomain.txt"
-        threads = args.use if args.use else 20
-        subdomain.subdomain_scan(args.target, wordlist, threads, verbose=verbose, save=save_file)
-        return
-    
-    # ========== TRACKWEB (Download Source) ==========
-    if args.trackweb:
-        if not args.target or not args.c:
-            print("[!] Gunakan: osxnt.py -trackweb <target> -c html,css,js [-o output_dir]")
-            print("    Contoh: osxnt.py -trackweb example.com -c html,css -o package/$result$")
-            sys.exit(1)
-        
-        code_types = [t.strip() for t in args.c.split(',')]
-        
-        # Multi-target dari file
-        if args.target.startswith('@'):
-            filename = args.target[1:]
-            targets = read_targets_from_file(filename)
-            if not targets:
-                sys.exit(1)
-            print(f"[+] Memproses {len(targets)} target dari {filename}")
-            process_multi_targets(targets, code_types, args.o, verbose)
-        else:
-            process_single_target(args.target, code_types, args.o, verbose)
-        return
-    
-    # ========== HTTP HEADER ANALYZER ==========
-    if args.header:
-        analyzer = HTTPAnalyzer(verbose=verbose)
-        analyzer.analyze(args.header, save=save_file)
-        return
-    
-    # ========== SSL/TLS ANALYZER ==========
-    if args.ssl:
-        analyzer = SSLAnalyzer(verbose=verbose)
-        analyzer.analyze(args.ssl, args.port, save=save_file)
-        return
-    
-    # ========== EMAIL HARVESTER ==========
-    if args.email and args.scrap:
-        harvester = EmailHarvester(verbose=verbose)
-        
-        # Multi-target dari file
-        if args.scrap.startswith('@'):
-            filename = args.scrap[1:]
-            targets = read_targets_from_file(filename)
-            if not targets:
-                sys.exit(1)
-            print(f"[+] Memproses {len(targets)} target dari {filename}")
-            all_results = []
-            for target in targets:
-                result = harvester.harvest(target, depth=args.depth)
-                all_results.append(result)
-            if save_file:
-                from lib.json_save import save_to_json, prepare_output
-                output = prepare_output(all_results, "multi_target", "email_harvester")
-                save_to_json(output, save_file)
-        else:
-            harvester.harvest(args.scrap, depth=args.depth, save=save_file)
-        return
-    
-    # ========== URL EXTRACTOR ==========
-    if args.urlextract:
-        extractor = URLExtractor(verbose=verbose)
-        extractor.extract(args.urlextract, depth=args.depth, save=save_file)
-        return
-    
-    # ========== URL CHECKER ==========
-    if args.urlcheck and args.resource:
-        checker = URLChecker(verbose=verbose)
-        checker.check(args.resource, resource_type=args.type, save=save_file)
-        return
-    
-    # ========== NGL SPAM ==========
-    if args.ngl_spam:
-        username = args.ngl_spam
-        spammer = NGLSpammer(username, verbose)
-        
-        # Header
-        print("\n" + "="*50)
-        print(f"📱 NGL SPAMMER - Target: @{username}")
-        print("="*50)
-        
-        jumlah = args.jumlah if args.jumlah else 10
-        
-        # File mode
-        if args.file:
-            spammer.spam_from_file(args.file, jumlah, args.delay)
-        
-        # Random theme mode
-        elif args.theme:
-            spammer.random_spam(args.theme, jumlah, args.delay)
-        
-        # Single message mode
-        elif args.message:
-            spammer.spam(args.message, jumlah, args.delay)
-        
-        else:
-            print("[!] Tentukan pesan dengan -m (single), -f (file), atau -theme (random)")
-            print("    Contoh: osxnt.py -ngl-spam user -m 'Hello' -n 50")
-            print("            osxnt.py -ngl-spam user -f messages.txt -n 5")
-            print("            osxnt.py -ngl-spam user -theme love -n 100")
-        
-        return
-    
-    # ========== GMAIL SPAM (SIMULASI) ==========
-    if args.gmail_spam:
-        email = args.gmail_spam
-        spammer = GmailSpammer(verbose)
-        
-        print("\n" + "="*50)
-        print(f"📧 GMAIL SPAMMER (SIMULASI) - Target: {email}")
-        print("="*50)
-        
-        if not args.subject or not args.body:
-            print("[!] Gunakan -subj untuk subject dan -body untuk isi email")
-            print("    Contoh: osxnt.py -gmail-spam target@gmail.com -subj 'Hello' -body 'Test' -n 10")
-            sys.exit(1)
-        
-        jumlah = args.jumlah if args.jumlah else 10
-        spammer.spam(email, args.subject, args.body, jumlah, args.delay)
-        return
-    
-    # Jika tidak ada perintah yang dikenali
-    print("[!] Perintah tidak dikenal. Gunakan -h untuk melihat bantuan.")
-    sys.exit(1)
+        # ===== JIKA TIDAK ADA PERINTAH =====
+        print("[!] Perintah tidak dikenal. Gunakan -h untuk melihat bantuan.")
 
 if __name__ == "__main__":
     try:
