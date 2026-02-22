@@ -5,7 +5,8 @@
 import hashlib
 import os
 from lib.verbose import Verbose
-from lib.file_helper import read_file, save_results
+from lib.file_helper import read_file
+from lib.txt_save import save_results  # Pindah ke sini!
 from lib.timer import Timer
 
 class HashGenerator:
