@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# OSXNT - OSINT Toolkit by alzzmetth
-# Version: 2.4.0 (with Hash & Bruteforce Modules)
+# OSXNT - OSINT Toolkit by alzzdevmaret
+# Version: 2.4.0 (with Darkweb Upgraded)
 
 import argparse
 import sys
@@ -15,28 +15,30 @@ from lib.json_save import save_to_json, prepare_output
 from lib.verbose import Verbose
 from lib.csv_save import save_to_csv, append_to_csv, dict_to_csv
 from lib.txt_save import save_to_txt, append_to_txt, save_results
-from lib.file_helper import ensure_dir, get_unique_filename, list_files, delete_file, get_file_size
+from lib.file_helper import ensure_dir, get_unique_filename, list_files, delete_file, get_file_size, read_file
 from lib.validator import is_valid_ip, is_valid_domain, is_valid_url, is_valid_email, is_valid_port, validate_input
 from lib.converter import json_to_csv, dict_to_txt, size_to_human, timestamp_to_date
 from lib.timer import Timer, measure_time
 
-# Import modules
+# Import modules (tanpa http/ssl)
 from modules import iptrack, dns, scanport, subdomain
 from modules.webtrack import track_web, process_single_target, process_multi_targets
 from modules.spam import NGLSpammer, GmailSpammer
 from modules.email_harvester import EmailHarvester
 from modules.url_extractor import URLExtractor, URLChecker
 from modules.c2 import C2Server, C2Monitor, C2UI
-from modules.darkweb import DarkWebDeployer
 
-# Import hash & bruteforce modules (NEW!)
+# Import hash & bruteforce modules
 from modules.hash import HashGenerator, HashChecker, Encoder, Decoder
-from modules.bruteforce import MD5Cracker, SHA256Cracker, SHA1Cracker, WordlistManager
+from modules.bruteforce import BruteForceEngine, HashCracker, MD5Cracker, SHA256Cracker, SHA1Cracker, WordlistManager
+
+# Import darkweb upgraded modules
+from modules.darkweb import DarkWebDeployer, Config as DarkConfig, DarkWebAuth, DarkWebMonitor, DarkWebUI
 
 # Versi tools
 VERSION = "2.4.0"
-AUTHOR = "alzzmetth"
-GITHUB = "https://github.com/alzzmetth/osxnt"
+AUTHOR = "alzzdevmaret"
+GITHUB = "https://github.com/alzzdevmaret/osxnt"
 
 def show_version():
     """Tampilkan informasi versi dengan lib baru"""
@@ -51,8 +53,8 @@ def show_version():
 ║  Features          : IP Track, Web Track, Port Scan,       ║
 ║                      Subdomain, Email Harvester,           ║
 ║                      URL Tools, C2 Framework,              ║
-║                      Dark Web, HASH, Encode/Decode,        ║
-║                      Bruteforce (MD5, SHA1, SHA256)        ║
+║                      Dark Web (Upgraded), HASH,            ║
+║                      Encode/Decode, Bruteforce             ║
 ╚══════════════════════════════════════════════════════════════╝
     """.strip())
 
@@ -64,7 +66,7 @@ def show_full_help():
 {'='*70}
 
 USAGE:
-    osxnt.py [-h] [-v] [-s file.json] [-csv file.csv] [-txt file.txt] [OPTIONS] [target]
+    osxnt.py [-h] [-v] [-s file.json] [--csv file.csv] [--txt file.txt] [OPTIONS] [target]
 
 {'='*70}
 🌐 GLOBAL OPTIONS:
@@ -144,16 +146,27 @@ USAGE:
         osxnt.py -urlcheck -resource example.com --type images
 
 {'='*70}
-🌑 DARK WEB DEPLOYER:
+🌑 DARK WEB DEPLOYER (UPGRADED):
 {'='*70}
-    -darkweb -start          Start dark web server
     -darkweb -create NAME    Create hidden service
+    -darkweb -start NAME     Start service
+    -darkweb -stop NAME      Stop service
+    -darkweb -restart NAME   Restart service
     -darkweb -list           List all services
     -darkweb -status NAME    Check service status
+    -darkweb -logs NAME      Show service logs
+    -darkweb -dashboard      Show dashboard
+    -darkweb -ui             Interactive UI
+    -darkweb -auth NAME      Setup authentication
+    --port PORT              Port for service
+    --user USER              Username for auth
+    --pass PASS              Password for auth
     
     Contoh:
         osxnt.py -darkweb -create --name mysite --port 8080
         osxnt.py -darkweb -start mysite
+        osxnt.py -darkweb -dashboard
+        osxnt.py -darkweb -auth mysite --user admin --pass secret
 
 {'='*70}
 🤖 C2 FRAMEWORK:
@@ -171,6 +184,7 @@ USAGE:
     -hash --file FILE        Generate hash dari file
     --algorithm ALGO         Algorithm (md5,sha1,sha256,sha512)
     --verify HASH            Verify hash
+    --find HASH --dir DIR    Find file by hash
     
     Contoh:
         osxnt.py -hash --text "password" --algorithm md5
@@ -182,25 +196,23 @@ USAGE:
 {'='*70}
     -encode --type TYPE      Encode text
     -decode --type TYPE      Decode text
-    --type TYPE              base64, base32, base16, rot13, url
+    --type TYPE              base64, base32, base16, rot13, url, auto
     
     Contoh:
         osxnt.py -encode --type base64 --text "secret"
         osxnt.py -decode --type auto --text "c2VjcmV0"
-        osxnt.py -encode --type rot13 --text "hello"
 
 {'='*70}
 🔓 BRUTEFORCE CRACKER:
 {'='*70}
     -crack --hash HASH       Crack hash
-    --method METHOD          wordlist, bruteforce, hybrid
+    --method METHOD          wordlist, bruteforce, hybrid, auto
     --wordlist NAME          Wordlist to use
     --min-len LEN            Minimum length
     --max-len LEN            Maximum length
     
     Contoh:
         osxnt.py -crack --hash 5f4dcc3b5aa7 --method wordlist
-        osxnt.py -crack --hash 5f4dcc3b5aa7 --method hybrid
         osxnt.py -crack --hash e3ceb5881a0a --method bruteforce --max-len 4
 
 {'='*70}
@@ -209,6 +221,7 @@ USAGE:
     -wordlist --list         List available wordlists
     -wordlist --download NAME Download wordlist
     -wordlist --create FILE  Create custom wordlist
+    --words "word1,word2"    Words for custom wordlist
     
     Contoh:
         osxnt.py -wordlist --list
@@ -318,7 +331,7 @@ def create_parser():
     parser.add_argument('--server', help='Server address untuk client')
     parser.add_argument('--pass', dest='c2pass', help='Password untuk C2')
     
-    # ===== DARK WEB =====
+    # ===== DARK WEB UPGRADED =====
     parser.add_argument('-darkweb', action='store_true', help='Dark web control')
     parser.add_argument('-create', action='store_true', help='Create hidden service')
     parser.add_argument('-start', action='store_true', help='Start service')
@@ -327,8 +340,13 @@ def create_parser():
     parser.add_argument('-list', action='store_true', help='List all services')
     parser.add_argument('-status', action='store_true', help='Show status')
     parser.add_argument('-logs', action='store_true', help='Show logs')
+    parser.add_argument('-dashboard', action='store_true', help='Show dashboard')
+    parser.add_argument('-ui', action='store_true', help='Interactive UI')
+    parser.add_argument('-auth', action='store_true', help='Setup authentication')
     parser.add_argument('--name', help='Service name')
     parser.add_argument('--port', type=int, default=8080, help='Port for service')
+    parser.add_argument('--user', help='Username for auth')
+    parser.add_argument('--passwd', help='Password for auth')
     
     # ===== HASH MODULE =====
     parser.add_argument('-hash', action='store_true', help='Hash generator')
@@ -338,7 +356,7 @@ def create_parser():
                        default='md5', help='Hash algorithm')
     parser.add_argument('--verify', help='Verify hash')
     parser.add_argument('--find', help='Find file by hash')
-    parser.add_argument('--directory', help='Directory for find operation')
+    parser.add_argument('--dir', help='Directory for find operation')
     
     # ===== ENCODE/DECODE =====
     parser.add_argument('-encode', action='store_true', help='Encode text')
@@ -459,18 +477,30 @@ def main():
             if args.text:
                 if args.verify:
                     result = checker.verify_string(args.text, args.verify, args.algorithm)
+                    if result:
+                        print("[✓] Hash matches!")
+                    else:
+                        print("[✗] Hash does not match")
                 else:
                     result = generator.hash_string(args.text, args.algorithm)
-                    if result and txt_file:
-                        save_to_txt(f"{args.algorithm}: {result}", txt_file)
+                    if result:
+                        print(f"\n[{args.algorithm.upper()} Hash]")
+                        print(result)
+                        if txt_file:
+                            save_to_txt(f"{args.algorithm}: {result}", txt_file)
             
             elif args.file:
                 result = generator.hash_file(args.file, args.algorithm)
-                if result and txt_file:
-                    save_to_txt(f"{args.file}: {result}", txt_file)
+                if result:
+                    print(f"\n[{args.algorithm.upper()} Hash of {args.file}]")
+                    print(result)
+                    if txt_file:
+                        save_to_txt(f"{args.file}: {result}", txt_file)
             
-            elif args.find and args.directory:
-                result = checker.find_matching_file(args.directory, args.find, args.algorithm)
+            elif args.find and args.dir:
+                result = checker.find_matching_file(args.dir, args.find, args.algorithm)
+                if result:
+                    print(f"\n[✓] Found: {result}")
             
             return
         
@@ -491,8 +521,11 @@ def main():
             elif args.type == 'url':
                 result = encoder.url_encode(args.text)
             
-            if result and txt_file:
-                save_to_txt(result, txt_file)
+            if result:
+                print(f"\n[{args.type.upper()} Encoded]")
+                print(result)
+                if txt_file:
+                    save_to_txt(result, txt_file)
             
             return
         
@@ -501,9 +534,12 @@ def main():
             
             if args.type == 'auto':
                 results = decoder.auto_decode(args.text)
-                if results and txt_file:
+                if results:
+                    print("\n[Possible Decodings]")
                     for method, decoded in results.items():
-                        save_to_txt(f"{method}: {decoded}", txt_file, 'a')
+                        print(f"  {method}: {decoded}")
+                        if txt_file:
+                            save_to_txt(f"{method}: {decoded}", txt_file, 'a')
             else:
                 if args.type == 'base64':
                     result = decoder.base64_decode(args.text)
@@ -518,8 +554,11 @@ def main():
                 elif args.type == 'url':
                     result = decoder.url_decode(args.text)
                 
-                if result and txt_file:
-                    save_to_txt(result, txt_file)
+                if result:
+                    print(f"\n[{args.type.upper()} Decoded]")
+                    print(result)
+                    if txt_file:
+                        save_to_txt(result, txt_file)
             
             return
         
@@ -527,24 +566,90 @@ def main():
         if args.crack and args.hash:
             # Auto detect algorithm based on hash length
             hash_len = len(args.hash)
+            cracker = None
+            
             if hash_len == 32:
                 cracker = MD5Cracker(verbose)
+                algo = "MD5"
             elif hash_len == 40:
                 cracker = SHA1Cracker(verbose)
+                algo = "SHA1"
             elif hash_len == 64:
                 cracker = SHA256Cracker(verbose)
+                algo = "SHA256"
             else:
-                print("[!] Could not detect hash algorithm")
-                return
+                # Default ke HashCracker dengan algoritma manual
+                cracker = HashCracker(verbose)
+                algo = "Unknown"
+                print(f"[!] Hash length {hash_len} not recognized, using generic cracker")
             
-            result = cracker.crack(
-                args.hash,
-                method=args.method,
-                wordlist=args.wordlist or 'rockyou'
-            )
+            if cracker:
+                result = cracker.crack(
+                    args.hash,
+                    method=args.method,
+                    wordlist=args.wordlist or 'rockyou'
+                )
+                
+                if result:
+                    print(f"\n[✓] {algo} Password found: {result}")
+                    if txt_file:
+                        save_to_txt(f"Hash: {args.hash}\nPassword: {result}", txt_file)
+                else:
+                    print(f"\n[✗] {algo} Password not found")
             
-            if result and txt_file:
-                save_to_txt(f"Hash: {args.hash}\nPassword: {result}", txt_file)
+            return
+        
+        # ===== DARK WEB UPGRADED =====
+        if args.darkweb:
+            # Initialize darkweb components
+            dark_config = DarkConfig()
+            dark_monitor = DarkWebMonitor(dark_config)
+            dark_ui = DarkWebUI(dark_config, dark_monitor)
+            
+            if args.create and args.name:
+                deployer = DarkWebDeployer(dark_config)
+                deployer.create_service(args.name, args.port)
+            
+            elif args.start and args.name:
+                deployer = DarkWebDeployer(dark_config)
+                deployer.start_service(args.name)
+            
+            elif args.stop and args.name:
+                deployer = DarkWebDeployer(dark_config)
+                deployer.stop_service(args.name)
+            
+            elif args.restart and args.name:
+                deployer = DarkWebDeployer(dark_config)
+                deployer.restart_service(args.name)
+            
+            elif args.list:
+                dark_ui.quick_status()
+            
+            elif args.status and args.name:
+                svc = dark_config.get_service(args.name)
+                if svc:
+                    dark_ui.show_service_summary(args.name, svc)
+                else:
+                    print(f"[!] Service {args.name} not found")
+            
+            elif args.logs and args.name:
+                # Simple log display
+                print(f"[*] Logs for {args.name} (not implemented in this version)")
+            
+            elif args.dashboard:
+                dark_ui.show_dashboard()
+            
+            elif args.ui:
+                dark_ui.interactive_menu()
+            
+            elif args.auth and args.name and args.user and args.passwd:
+                auth = DarkWebAuth(dark_config)
+                auth.add_user(args.user, args.passwd)
+                print(f"[✓] Authentication setup for {args.name}")
+            
+            else:
+                print("[!] Gunakan: -create, -start, -stop, -list, -dashboard, -ui, dll")
+                print("    Contoh: osxnt.py -darkweb -create --name mysite --port 8080")
             
             return
         
@@ -693,7 +798,7 @@ def main():
                 all_urls = []
                 for cat, urls in result.get('categories', {}).items():
                     for url in urls:
-                        all_urls.append({'category': cat, 'url': url})
+                        all_urls.append({'category': cat, 'url': url if isinstance(url, str) else url.get('url', '')})
                 save_to_csv(all_urls, csv_file)
             
             return
@@ -705,38 +810,16 @@ def main():
             
             if result and csv_file:
                 # Flatten broken links
-                broken = result.get('broken_links', [])
+                broken = []
+                for res_type, resources in result.get('resources', {}).items():
+                    for res in resources:
+                        if res.get('status') != 'OK':
+                            broken.append({
+                                'type': res_type,
+                                'url': res.get('url', ''),
+                                'status': res.get('status', 'Unknown')
+                            })
                 save_to_csv(broken, csv_file)
-            
-            return
-        
-        # ===== DARK WEB =====
-        if args.darkweb:
-            deployer = DarkWebDeployer()
-            
-            if args.create and args.name:
-                deployer.create_service(args.name, args.port)
-            
-            elif args.start and args.name:
-                deployer.start_service(args.name)
-            
-            elif args.stop and args.name:
-                deployer.stop_service(args.name)
-            
-            elif args.restart and args.name:
-                deployer.restart_service(args.name)
-            
-            elif args.list:
-                deployer.list_services()
-            
-            elif args.status and args.name:
-                deployer.service_status(args.name)
-            
-            elif args.logs and args.name:
-                deployer.show_logs(args.name)
-            
-            else:
-                print("[!] Gunakan: --create, --start, --stop, --list, dll")
             
             return
         
